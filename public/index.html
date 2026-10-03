@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MT5 Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0a0a1a;
+            color: #ffffff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            text-align: center;
+        }
+        h1 {
+            font-size: 3rem;
+            background: linear-gradient(135deg, #00d4ff, #7b2ff7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+        p {
+            color: #888;
+            font-size: 1.2rem;
+            margin-bottom: 20px;
+        }
+        .status {
+            padding: 15px 30px;
+            background: #1a1a2e;
+            border: 1px solid #333;
+            border-radius: 10px;
+            display: inline-block;
+        }
+        .dot {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            background: #00ff88;
+            border-radius: 50%;
+            margin-right: 8px;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 MT5 Dashboard</h1>
+        <p>Multi-Account Trading Monitor</p>
+        <div class="status">
+            <span class="dot"></span>
+            <span id="statusText">Connecting to server...</span>
+        </div>
+    </div>
+
+    <script>
+        fetch('/api/health')
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById('statusText').textContent = 
+                    'Server Online - ' + data.message;
+            })
+            .catch(err => {
+                document.getElementById('statusText').textContent = 
+                    'Server Offline';
+                document.querySelector('.dot').style.background = '#ff4444';
+            });
+    </script>
+</body>
+</html>
