@@ -4,173 +4,175 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MT5 Multi-Account Command Center</title>
-    <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- ApexCharts CDN for interactive trading charts -->
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
-    <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
-    <!-- Google Font Inter -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Inter', sans-serif; background-color: #0b0f19; color: #f3f4f6; }
+        body { font-family: 'Inter', sans-serif; background: #060a13; color: #f3f4f6; }
         .glass-panel {
-            background: rgba(17, 24, 39, 0.85);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.07);
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
         }
-        .glow-green { box-shadow: 0 0 20px -5px rgba(16, 185, 129, 0.25); }
-        .glow-red { box-shadow: 0 0 20px -5px rgba(239, 68, 68, 0.25); }
-        .glow-blue { box-shadow: 0 0 25px -5px rgba(59, 130, 246, 0.2); }
-        /* Custom scrollbars */
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        .glow-green { box-shadow: 0 0 25px -5px rgba(16, 185, 129, 0.2); }
+        .glow-red { box-shadow: 0 0 25px -5px rgba(239, 68, 68, 0.2); }
+        .glow-blue { box-shadow: 0 0 30px -5px rgba(59, 130, 246, 0.15); }
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
         ::-webkit-scrollbar-track { background: #0b0f19; }
-        ::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+        .apexcharts-tooltip { border: 1px solid #334155 !important; }
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-in { animation: fadeInUp 0.5s ease-out forwards; }
     </style>
 </head>
 <body class="min-h-screen flex flex-col antialiased">
 
-    <!-- Top Navigation Bar -->
-    <header class="glass-panel sticky top-0 z-50 border-b border-gray-800 px-6 py-4">
-        <div class="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
-            
-            <!-- Logo & Status -->
+    <!-- ═══ TOP NAV BAR ═══ -->
+    <header class="glass-panel sticky top-0 z-50 border-b border-gray-800/60 px-6 py-4">
+        <div class="max-w-[1400px] mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
             <div class="flex items-center space-x-3">
                 <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
                     <i data-lucide="activity" class="w-6 h-6 text-white"></i>
                 </div>
                 <div>
-                    <h1 class="font-bold text-xl tracking-tight bg-gradient-to-r from-white via-gray-200 to-gray-400 bg-clip-text text-transparent">MT5 Command Center</h1>
+                    <h1 class="font-extrabold text-xl tracking-tight bg-gradient-to-r from-white via-gray-200 to-gray-400 bg-clip-text text-transparent">MT5 Command Center</h1>
                     <div class="flex items-center space-x-2 text-xs text-gray-400">
                         <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                        <span id="syncStatus">Live Cloud Sync</span>
+                        <span id="syncStatus">Cloud Sync Active</span>
                         <span class="text-gray-600">•</span>
                         <span id="lastUpdated">Updating...</span>
                     </div>
                 </div>
             </div>
-
-            <!-- Filters & Controls -->
             <div class="flex flex-wrap items-center gap-3">
-                <!-- Account Selector -->
                 <div class="relative">
-                    <select id="accountFilter" class="bg-gray-900 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 pr-8 focus:ring-2 focus:ring-blue-500 focus:outline-none appearance-none cursor-pointer">
-                        <option value="all">🌐 All Accounts (Collective)</option>
+                    <select id="accountFilter" class="bg-gray-900 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 pr-8 focus:ring-2 focus:ring-cyan-500 focus:outline-none appearance-none cursor-pointer hover:border-gray-600 transition">
+                        <option value="all">🌐 All Accounts</option>
                     </select>
                     <i data-lucide="chevron-down" class="w-4 h-4 text-gray-400 absolute right-2.5 top-3 pointer-events-none"></i>
                 </div>
-
-                <!-- EA / Magic Selector -->
                 <div class="relative">
-                    <select id="magicFilter" class="bg-gray-900 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 pr-8 focus:ring-2 focus:ring-blue-500 focus:outline-none appearance-none cursor-pointer">
-                        <option value="all">⚡ All EAs & Strategies</option>
+                    <select id="magicFilter" class="bg-gray-900 border border-gray-700 text-gray-200 text-sm rounded-lg px-3 py-2 pr-8 focus:ring-2 focus:ring-cyan-500 focus:outline-none appearance-none cursor-pointer hover:border-gray-600 transition">
+                        <option value="all">⚡ All EAs</option>
                     </select>
                     <i data-lucide="chevron-down" class="w-4 h-4 text-gray-400 absolute right-2.5 top-3 pointer-events-none"></i>
                 </div>
-
-                <!-- Refresh Button -->
-                <button onclick="refreshDashboard()" class="p-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition border border-gray-700 hover:border-gray-600" title="Force Refresh">
+                <button onclick="refreshDashboard()" class="p-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition border border-gray-700 hover:border-gray-500 hover:text-white" title="Refresh">
                     <i data-lucide="rotate-cw" class="w-4 h-4"></i>
                 </button>
             </div>
         </div>
     </header>
 
-    <!-- Main Content Body -->
-    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-8 space-y-8">
+    <!-- ═══ MAIN CONTENT ═══ -->
+    <main class="flex-1 max-w-[1400px] w-full mx-auto px-4 sm:px-6 py-8 space-y-8">
 
-        <!-- 1. KPI STATS OVERVIEW CARDS -->
-        <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-            <!-- Total Balance / Equity -->
-            <div class="glass-panel p-5 rounded-2xl relative overflow-hidden group">
+        <!-- 1. KPI STATS CARDS -->
+        <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 animate-in">
+            <div class="glass-panel p-5 rounded-2xl glow-blue">
                 <div class="flex justify-between items-start mb-3">
-                    <span class="text-xs font-semibold uppercase tracking-wider text-gray-400">Total Balance & Equity</span>
+                    <span class="text-[11px] font-semibold uppercase tracking-widest text-gray-500">Balance & Equity</span>
                     <span class="p-2 rounded-lg bg-blue-500/10 text-blue-400"><i data-lucide="wallet" class="w-4 h-4"></i></span>
                 </div>
-                <div class="text-2xl font-bold text-white tracking-tight" id="totalBalance">$0.00</div>
+                <div class="text-2xl font-extrabold text-white tracking-tight" id="totalBalance">$0.00</div>
                 <div class="flex items-center justify-between mt-2 text-xs text-gray-400">
-                    <span>Equity: <strong class="text-gray-200 font-semibold" id="totalEquity">$0.00</strong></span>
-                    <span id="accountCountBadge" class="bg-gray-800 text-gray-300 px-2 py-0.5 rounded-full font-mono">0 Accs</span>
+                    <span>Equity: <strong class="text-gray-200" id="totalEquity">$0.00</strong></span>
+                    <span id="accountCountBadge" class="bg-gray-800 text-gray-300 px-2 py-0.5 rounded-full font-mono text-[10px]">0 Accs</span>
                 </div>
             </div>
 
-            <!-- Today P&L -->
-            <div class="glass-panel p-5 rounded-2xl relative overflow-hidden group" id="todayCard">
+            <div class="glass-panel p-5 rounded-2xl" id="todayCard">
                 <div class="flex justify-between items-start mb-3">
-                    <span class="text-xs font-semibold uppercase tracking-wider text-gray-400">Today's P&L</span>
-                    <span class="p-2 rounded-lg bg-emerald-500/10 text-emerald-400" id="todayIconBox"><i data-lucide="trending-up" class="w-4 h-4"></i></span>
+                    <span class="text-[11px] font-semibold uppercase tracking-widest text-gray-500">Today's P&L</span>
+                    <span class="p-2 rounded-lg bg-emerald-500/10 text-emerald-400"><i data-lucide="trending-up" class="w-4 h-4"></i></span>
                 </div>
-                <div class="text-2xl font-bold tracking-tight" id="todayPnl">$0.00</div>
+                <div class="text-2xl font-extrabold tracking-tight" id="todayPnl">$0.00</div>
                 <div class="mt-2 text-xs text-gray-400 flex items-center space-x-1">
-                    <span>Floating Live: </span>
-                    <span id="floatingPnl" class="font-semibold text-gray-300">$0.00</span>
+                    <span>Floating:</span>
+                    <span id="floatingPnl" class="font-semibold">$0.00</span>
                     <span class="text-gray-500">(<span id="openCount">0</span> open)</span>
                 </div>
             </div>
 
-            <!-- Running Month P&L -->
-            <div class="glass-panel p-5 rounded-2xl relative overflow-hidden group">
+            <div class="glass-panel p-5 rounded-2xl">
                 <div class="flex justify-between items-start mb-3">
-                    <span class="text-xs font-semibold uppercase tracking-wider text-gray-400">This Month P&L</span>
+                    <span class="text-[11px] font-semibold uppercase tracking-widest text-gray-500">Month P&L</span>
                     <span class="p-2 rounded-lg bg-purple-500/10 text-purple-400"><i data-lucide="calendar" class="w-4 h-4"></i></span>
                 </div>
-                <div class="text-2xl font-bold tracking-tight text-white" id="monthPnl">$0.00</div>
+                <div class="text-2xl font-extrabold tracking-tight text-white" id="monthPnl">$0.00</div>
                 <div class="mt-2 text-xs text-gray-400">
-                    <span>Closed All-time: </span>
-                    <span id="totalClosedPnl" class="font-semibold text-gray-200">$0.00</span>
+                    Closed All-time: <span id="totalClosedPnl" class="font-semibold text-gray-200">$0.00</span>
                 </div>
             </div>
 
-            <!-- Win Rate & Profit Factor -->
-            <div class="glass-panel p-5 rounded-2xl relative overflow-hidden group">
+            <div class="glass-panel p-5 rounded-2xl">
                 <div class="flex justify-between items-start mb-3">
-                    <span class="text-xs font-semibold uppercase tracking-wider text-gray-400">Performance Metrics</span>
+                    <span class="text-[11px] font-semibold uppercase tracking-widest text-gray-500">Performance</span>
                     <span class="p-2 rounded-lg bg-amber-500/10 text-amber-400"><i data-lucide="award" class="w-4 h-4"></i></span>
                 </div>
                 <div class="flex items-baseline space-x-3">
-                    <span class="text-2xl font-bold text-white tracking-tight" id="winRate">0%</span>
+                    <span class="text-2xl font-extrabold text-white" id="winRate">0%</span>
                     <span class="text-xs text-gray-400 font-medium">Win Rate</span>
                 </div>
                 <div class="mt-2 text-xs text-gray-400 flex items-center justify-between">
-                    <span>Profit Factor: <strong class="text-gray-200" id="profitFactor">0.00</strong></span>
+                    <span>PF: <strong class="text-gray-200" id="profitFactor">0.00</strong></span>
                     <span>Trades: <strong class="text-gray-200" id="totalTradesCount">0</strong></span>
                 </div>
             </div>
         </section>
 
-        <!-- 2. CHARTS SECTION -->
-        <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <!-- Equity Growth Curve Chart (2 cols) -->
-            <div class="glass-panel p-6 rounded-2xl lg:col-span-2 flex flex-col">
-                <div class="flex items-center justify-between mb-4">
-                    <div>
-                        <h2 class="text-lg font-bold text-white flex items-center gap-2">
-                            <i data-lucide="line-chart" class="w-5 h-5 text-blue-400"></i>
-                            Cumulative Growth Curve
-                        </h2>
-                        <p class="text-xs text-gray-400">Net Profit progression over time</p>
-                    </div>
+        <!-- 2. CHARTS ROW 1: Equity Curve + Daily PnL Histogram -->
+        <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="glass-panel p-6 rounded-2xl">
+                <div class="mb-4">
+                    <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                        <i data-lucide="trending-up" class="w-5 h-5 text-cyan-400"></i>
+                        Cumulative Growth Curve
+                    </h2>
+                    <p class="text-xs text-gray-500">Net profit accumulation over time</p>
                 </div>
-                <div id="equityChart" class="flex-1 min-h-[300px]"></div>
+                <div id="equityChart" class="min-h-[340px]"></div>
             </div>
 
-            <!-- EA / Strategy Breakdown (1 col) -->
-            <div class="glass-panel p-6 rounded-2xl flex flex-col">
-                <div class="flex items-center justify-between mb-4">
-                    <div>
-                        <h2 class="text-lg font-bold text-white flex items-center gap-2">
-                            <i data-lucide="bot" class="w-5 h-5 text-purple-400"></i>
-                            P&L by EA Magic
-                        </h2>
-                        <p class="text-xs text-gray-400">Contribution per strategy</p>
-                    </div>
+            <div class="glass-panel p-6 rounded-2xl">
+                <div class="mb-4">
+                    <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                        <i data-lucide="bar-chart-3" class="w-5 h-5 text-emerald-400"></i>
+                        Daily P&L Histogram
+                    </h2>
+                    <p class="text-xs text-gray-500">Day-by-day profit & loss breakdown</p>
                 </div>
-                <div id="eaChart" class="flex-1 min-h-[300px]"></div>
+                <div id="dailyPnlChart" class="min-h-[340px]"></div>
             </div>
         </section>
 
-        <!-- 3. INTERACTIVE P&L CALENDAR -->
+        <!-- 3. CHARTS ROW 2: EA Breakdown + Win/Loss Donut -->
+        <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="glass-panel p-6 rounded-2xl lg:col-span-2">
+                <div class="mb-4">
+                    <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                        <i data-lucide="bot" class="w-5 h-5 text-purple-400"></i>
+                        P&L by EA / Strategy
+                    </h2>
+                    <p class="text-xs text-gray-500">Profit contribution per magic number</p>
+                </div>
+                <div id="eaChart" class="min-h-[300px]"></div>
+            </div>
+
+            <div class="glass-panel p-6 rounded-2xl">
+                <div class="mb-4">
+                    <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                        <i data-lucide="pie-chart" class="w-5 h-5 text-amber-400"></i>
+                        Win / Loss Ratio
+                    </h2>
+                    <p class="text-xs text-gray-500">Overall trade success distribution</p>
+                </div>
+                <div id="winLossChart" class="min-h-[300px]"></div>
+            </div>
+        </section>
+
+        <!-- 4. CALENDAR -->
         <section class="glass-panel p-6 rounded-2xl space-y-6">
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-gray-800">
                 <div>
@@ -178,16 +180,13 @@
                         <i data-lucide="calendar-days" class="w-5 h-5 text-emerald-400"></i>
                         Daily P&L Calendar
                     </h2>
-                    <p class="text-xs text-gray-400">Instant day-by-day profitability matrix</p>
+                    <p class="text-xs text-gray-500">Day-by-day profitability heatmap</p>
                 </div>
-
-                <!-- Calendar Navigation & Month Badge -->
                 <div class="flex items-center gap-3">
                     <div class="bg-gray-900 border border-gray-700 px-4 py-1.5 rounded-xl text-sm font-semibold flex items-center gap-2">
-                        <span class="text-gray-400">Month Net:</span>
+                        <span class="text-gray-400">Monthly:</span>
                         <span id="calendarMonthTotal" class="font-bold text-emerald-400">$0.00</span>
                     </div>
-
                     <div class="flex items-center bg-gray-900 border border-gray-700 rounded-xl overflow-hidden p-0.5">
                         <button onclick="changeMonth(-1)" class="p-1.5 hover:bg-gray-800 text-gray-400 hover:text-white rounded-lg transition"><i data-lucide="chevron-left" class="w-4 h-4"></i></button>
                         <span id="calendarCurrentMonth" class="px-3 text-sm font-medium text-gray-200">March 2025</span>
@@ -195,74 +194,91 @@
                     </div>
                 </div>
             </div>
-
-            <!-- Calendar Days Grid -->
             <div>
-                <!-- Day Headers -->
-                <div class="grid grid-cols-7 gap-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                <div class="grid grid-cols-7 gap-2 text-center text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-2">
                     <div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div><div>Sun</div>
                 </div>
-                <!-- Day Cells -->
-                <div id="calendarGrid" class="grid grid-cols-7 gap-2">
-                    <!-- Populated dynamically via JS -->
-                </div>
+                <div id="calendarGrid" class="grid grid-cols-7 gap-2"></div>
             </div>
         </section>
 
-        <!-- 4. CONNECTED ACCOUNTS GRID & OPEN POSITIONS -->
+        <!-- 5. ACCOUNTS & OPEN POSITIONS -->
         <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <!-- Account Cards -->
             <div class="glass-panel p-6 rounded-2xl space-y-4">
-                <div class="flex items-center justify-between">
-                    <h2 class="text-lg font-bold text-white flex items-center gap-2">
-                        <i data-lucide="layers" class="w-5 h-5 text-cyan-400"></i>
-                        Connected MT5 Accounts
-                    </h2>
-                </div>
-                <div id="accountsGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[350px] overflow-y-auto pr-1">
-                    <!-- Dynamic Account Cards -->
-                </div>
+                <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                    <i data-lucide="layers" class="w-5 h-5 text-cyan-400"></i>
+                    Connected MT5 Accounts
+                </h2>
+                <div id="accountsGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto pr-1"></div>
             </div>
 
-            <!-- Live Open Positions -->
             <div class="glass-panel p-6 rounded-2xl space-y-4 flex flex-col">
                 <div class="flex items-center justify-between">
                     <h2 class="text-lg font-bold text-white flex items-center gap-2">
                         <i data-lucide="radio" class="w-5 h-5 text-rose-400"></i>
                         Active Open Positions
                     </h2>
-                    <span id="liveOpenBadge" class="text-xs bg-rose-500/10 text-rose-400 px-2.5 py-1 rounded-full font-mono border border-rose-500/20">0 Trades Active</span>
+                    <span id="liveOpenBadge" class="text-xs bg-rose-500/10 text-rose-400 px-2.5 py-1 rounded-full font-mono border border-rose-500/20">0 Active</span>
                 </div>
-
                 <div class="overflow-x-auto flex-1 max-h-[350px]">
                     <table class="w-full text-left text-xs">
-                        <thead class="text-gray-400 uppercase bg-gray-900/50 sticky top-0">
+                        <thead class="text-gray-400 uppercase bg-gray-900/60 sticky top-0">
                             <tr>
-                                <th class="p-2.5 rounded-l-lg">Acc / EA</th>
+                                <th class="p-2.5 rounded-l-lg">EA</th>
                                 <th class="p-2.5">Symbol</th>
                                 <th class="p-2.5">Type</th>
                                 <th class="p-2.5">Lots</th>
-                                <th class="p-2.5">Open Price</th>
-                                <th class="p-2.5 rounded-r-lg text-right">Floating P&L</th>
+                                <th class="p-2.5">Entry</th>
+                                <th class="p-2.5 rounded-r-lg text-right">Float P&L</th>
                             </tr>
                         </thead>
-                        <tbody id="openPositionsTable" class="divide-y divide-gray-800 text-gray-300">
-                            <tr>
-                                <td colspan="6" class="text-center py-6 text-gray-500">No open positions currently active</td>
-                            </tr>
+                        <tbody id="openPositionsTable" class="divide-y divide-gray-800/50 text-gray-300">
+                            <tr><td colspan="6" class="text-center py-8 text-gray-600">No open positions</td></tr>
                         </tbody>
                     </table>
                 </div>
             </div>
         </section>
 
+        <!-- 6. TOP PERFORMING EAs LEADERBOARD -->
+        <section class="glass-panel p-6 rounded-2xl space-y-4">
+            <div class="flex items-center justify-between pb-4 border-b border-gray-800">
+                <div>
+                    <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                        <i data-lucide="trophy" class="w-5 h-5 text-amber-400"></i>
+                        EA Performance Leaderboard
+                    </h2>
+                    <p class="text-xs text-gray-500">Ranked by total net profit across all accounts</p>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm">
+                    <thead class="text-xs text-gray-400 uppercase bg-gray-900/60 sticky top-0">
+                        <tr>
+                            <th class="p-3 text-center rounded-l-lg w-14">Rank</th>
+                            <th class="p-3">EA / Strategy</th>
+                            <th class="p-3 text-right">Total Net P&L</th>
+                            <th class="p-3 text-center">Trades</th>
+                            <th class="p-3 text-center">W / L</th>
+                            <th class="p-3 text-center">Win Rate</th>
+                            <th class="p-3 text-right">Avg Trade</th>
+                            <th class="p-3 text-right rounded-r-lg">Open P&L</th>
+                        </tr>
+                    </thead>
+                    <tbody id="eaLeaderboardBody" class="divide-y divide-gray-800/40">
+                        <tr><td colspan="8" class="text-center py-8 text-gray-600">Loading EA performance data...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
     </main>
 
-    <footer class="border-t border-gray-900 text-center py-6 text-xs text-gray-500">
-        MT5 Multi-Account Orchestrator & Dashboard • Connected to Railway Cloud
+    <footer class="border-t border-gray-900 text-center py-6 text-xs text-gray-600">
+        MT5 Multi-Account Command Center • Railway Cloud
     </footer>
 
-    <!-- App JavaScript Logic -->
     <script src="/js/dashboard.js"></script>
 </body>
 </html>
