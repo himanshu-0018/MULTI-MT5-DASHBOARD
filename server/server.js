@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const path = require('path');
+const db = require('./database');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -20,6 +21,17 @@ app.get('/api/health', (req, res) => {
         status: 'running',
         message: 'MT5 Dashboard Server is alive!',
         timestamp: new Date().toISOString()
+    });
+});
+
+// ─── DATABASE TEST ROUTE ───
+app.get('/api/db-test', (req, res) => {
+    const tables = db.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).all();
+    res.json({
+        message: 'Database connected!',
+        tables: tables.map(t => t.name)
     });
 });
 
