@@ -122,31 +122,24 @@
             </div>
         </section>
 
-        <!-- 2. CHARTS ROW 1: Equity Curve + Daily PnL Histogram -->
-        <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div class="glass-panel p-6 rounded-2xl">
-                <div class="mb-4">
+               <!-- 2. STUNNING EQUITY CURVE (FULL WIDTH) -->
+        <section class="glass-panel p-6 rounded-2xl glow-blue">
+            <div class="flex items-center justify-between mb-2">
+                <div>
                     <h2 class="text-lg font-bold text-white flex items-center gap-2">
                         <i data-lucide="trending-up" class="w-5 h-5 text-cyan-400"></i>
                         Cumulative Growth Curve
                     </h2>
-                    <p class="text-xs text-gray-500">Net profit accumulation over time</p>
+                    <p class="text-xs text-gray-500">Net profit trajectory • Zoom & pan enabled • Peak & valley auto-marked</p>
                 </div>
-                <div id="equityChart" class="min-h-[340px]"></div>
-            </div>
-
-            <div class="glass-panel p-6 rounded-2xl">
-                <div class="mb-4">
-                    <h2 class="text-lg font-bold text-white flex items-center gap-2">
-                        <i data-lucide="bar-chart-3" class="w-5 h-5 text-emerald-400"></i>
-                        Daily P&L Histogram
-                    </h2>
-                    <p class="text-xs text-gray-500">Day-by-day profit & loss breakdown</p>
+                <div class="flex items-center gap-3 text-xs">
+                    <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Peak</span>
+                    <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span> Valley</span>
+                    <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-cyan-400"></span> Current</span>
                 </div>
-                <div id="dailyPnlChart" class="min-h-[340px]"></div>
             </div>
+            <div id="equityChart" class="min-h-[420px]"></div>
         </section>
-
         <!-- 3. CHARTS ROW 2: EA Breakdown + Win/Loss Donut -->
         <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div class="glass-panel p-6 rounded-2xl lg:col-span-2">
