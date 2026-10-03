@@ -166,6 +166,13 @@ function animateValue(el, end, { decimals = 0, prefix = '', suffix = '', duratio
   })(performance.now());
 }
 
+// ─── hero stat: animate on first load, then update live on every refresh ───
+function updateHero(id, value, { decimals = 0, prefix = '', suffix = '' } = {}) {
+  const el = $(id); if (!el) return;
+  if (firstLoad) { animateValue(el, value, { decimals, prefix, suffix }); }
+  else { el.textContent = prefix + Number(value).toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }) + suffix; }
+}
+
 // ─── typing headline ───
 function typeHeadline(text) {
   const el = $('typed'); if (!el) return; let i = 0;
@@ -242,12 +249,10 @@ async function fetchOverview() {
   set('profitFactor', d.profit_factor);
   set('totalTradesCount', `${d.total_trades} (${d.wins}W / ${d.losses}L)`);
 
-  // hero stats (once)
-  if (firstLoad) {
-    animateValue($('heroAccounts'), d.total_accounts);
-    animateValue($('heroProfit'), d.total_closed_profit, { prefix: '$' });
-    animateValue($('heroWin'), Number(d.win_rate), { decimals: 1, suffix: '%' });
-  }
+  // hero stats — update live on every refresh
+  updateHero('heroAccounts', d.total_accounts);
+  updateHero('heroProfit', d.total_closed_profit, { prefix: '$' });
+  updateHero('heroWin', Number(d.win_rate), { decimals: 1, suffix: '%' });
   renderDonut(d.wins, d.losses);
 }
 
@@ -261,7 +266,6 @@ async function fetchAccountsList() {
   allList.forEach((a) => { const o = document.createElement('option'); o.value = a.account_number; o.textContent = `${a.account_name || a.broker} • #${a.account_number}`; if (String(o.value) === cur) o.selected = true; sel.appendChild(o); });
 
   const shown = d ? filterAccounts(list) : list;
-  if (firstLoad) animateValue($('heroAccounts'), (d ? allList.length : MOCK_ACCOUNTS.length));
   const grid = $('accountsGrid');
   if (!shown.length) { grid.innerHTML = '<div class="col-span-2 text-center py-6 text-slate-500 text-sm">No MT5 terminals connected yet</div>'; return; }
   grid.innerHTML = shown.map((acc) => {
@@ -281,7 +285,7 @@ async function fetchEAList() {
   const sel = $('magicFilter'); const cur = sel.value;
   sel.innerHTML = '<option value="all">All EAs</option>';
   all.forEach((e) => { const o = document.createElement('option'); o.value = e.magic_number; o.textContent = `${e.ea_name} (${e.magic_number})`; if (String(o.value) === cur) o.selected = true; sel.appendChild(o); });
-  if (firstLoad) animateValue($('heroEAs'), all.length);
+  updateHero('heroEAs', all.length);
   renderBars(filterEAs(all));
 }
 
