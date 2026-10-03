@@ -2,14 +2,16 @@ const express = require('express');
 const router = express.Router();
 const db = require('./database');
 
+// Helper to normalize any MT5 date format "2025.03.01 12:00" -> "2025-03-01 12:00"
+function normalizeDate(dateStr) {
+    if (!dateStr) return new Date().toISOString().replace('T', ' ').slice(0, 19);
+    return dateStr.replace(/\./g, '-').trim();
+}
+
 // ==========================================
 // 📥 1. DATA INGESTION (Called by MT5 EA)
 // ==========================================
 
-/**
- * Main EA sync endpoint:
- * Receives account status, open positions, and latest closed trades in one payload.
- */
 router.post('/ea/sync', (req, res) => {
     try {
         const { account, open_positions = [], recent_trades = [] } = req.body;
@@ -82,7 +84,7 @@ router.post('/ea/sync', (req, res) => {
                     volume: Number(pos.volume) || 0,
                     open_price: Number(pos.open_price) || 0,
                     current_price: Number(pos.current_price) || 0,
-                    open_time: pos.open_time || new Date().toISOString(),
+                    open_time: normalizeDate(pos.open_time),
                     profit: Number(pos.profit) || 0,
                     swap: Number(pos.swap) || 0,
                     comment: pos.comment || ''
@@ -117,8 +119,8 @@ router.post('/ea/sync', (req, res) => {
                     volume: Number(trade.volume) || 0,
                     open_price: Number(trade.open_price) || 0,
                     close_price: Number(trade.close_price) || 0,
-                    open_time: trade.open_time || '',
-                    close_time: trade.close_time || '',
+                    open_time: normalizeDate(trade.open_time),
+                    close_time: normalizeDate(trade.close_time),
                     profit: profit,
                     commission: commission,
                     swap: swap,
@@ -144,7 +146,7 @@ router.post('/ea/sync', (req, res) => {
                     SUM(CASE WHEN net_profit > 0 THEN 1 ELSE 0 END) as winning_trades,
                     SUM(CASE WHEN net_profit < 0 THEN 1 ELSE 0 END) as losing_trades
                 FROM trades
-                WHERE account_number = ? AND substr(close_time, 1, 10) = ?
+                WHERE account_number = ? AND substr(REPLACE(close_time, '.', '-'), 1, 10) = ?
             `).get(String(account.account_number), today);
 
             db.prepare(`
@@ -167,10 +169,10 @@ router.post('/ea/sync', (req, res) => {
                 snapshot_date: today,
                 balance: Number(account.balance) || 0,
                 equity: Number(account.equity) || 0,
-                daily_profit: todayStats.daily_profit || 0,
-                total_trades: todayStats.total_trades || 0,
-                winning_trades: todayStats.winning_trades || 0,
-                losing_trades: todayStats.losing_trades || 0
+                daily_profit: todayStats ? todayStats.daily_profit : 0,
+                total_trades: todayStats ? todayStats.total_trades : 0,
+                winning_trades: todayStats ? todayStats.winning_trades : 0,
+                losing_trades: todayStats ? todayStats.losing_trades : 0
             });
         });
 
@@ -185,18 +187,13 @@ router.post('/ea/sync', (req, res) => {
 
 
 // ==========================================
-// 📊 2. DASHBOARD DATA ENDPOINTS (Called by UI)
+// 📊 2. DASHBOARD DATA ENDPOINTS
 // ==========================================
 
-/**
- * 2.1 Collective Overview (Cards on top)
- * Filters: ?account=... &magic=...
- */
 router.get('/overview', (req, res) => {
     try {
         const { account, magic } = req.query;
 
-        // Base trade query conditions
         let tradeWhere = 'WHERE 1=1';
         let tradeParams = [];
 
@@ -209,7 +206,6 @@ router.get('/overview', (req, res) => {
             tradeParams.push(magic);
         }
 
-        // Aggregate Totals
         const totalAccounts = db.prepare('SELECT COUNT(*) as count FROM accounts WHERE is_active = 1').get().count;
         
         let accountTotalsQuery = 'SELECT SUM(balance) as total_balance, SUM(equity) as total_equity FROM accounts WHERE is_active = 1';
@@ -220,7 +216,6 @@ router.get('/overview', (req, res) => {
         }
         const accountTotals = db.prepare(accountTotalsQuery).get(...accountTotalsParams) || { total_balance: 0, total_equity: 0 };
 
-        // Floating PnL from open positions
         let openWhere = 'WHERE 1=1';
         let openParams = [];
         if (account && account !== 'all') {
@@ -238,18 +233,18 @@ router.get('/overview', (req, res) => {
         const todayStats = db.prepare(`
             SELECT COALESCE(SUM(net_profit), 0) as today_pnl 
             FROM trades 
-            ${tradeWhere} AND substr(close_time, 1, 10) = ?
+            ${tradeWhere} AND substr(REPLACE(close_time, '.', '-'), 1, 10) = ?
         `).get(...tradeParams, todayStr);
 
         // Running Month PnL
-        const currentMonthStr = todayStr.slice(0, 7); // YYYY-MM
+        const currentMonthStr = todayStr.slice(0, 7);
         const monthStats = db.prepare(`
             SELECT COALESCE(SUM(net_profit), 0) as month_pnl 
             FROM trades 
-            ${tradeWhere} AND substr(close_time, 1, 7) = ?
+            ${tradeWhere} AND substr(REPLACE(close_time, '.', '-'), 1, 7) = ?
         `).get(...tradeParams, currentMonthStr);
 
-        // Overall Stats (Win Rate, Total Profit, Profit Factor)
+        // Overall Stats
         const overallTrades = db.prepare(`
             SELECT 
                 COUNT(*) as total_trades,
@@ -277,8 +272,8 @@ router.get('/overview', (req, res) => {
             total_equity: accountTotals.total_equity || 0,
             floating_pnl: floatingStats.floating_pnl || 0,
             open_trades_count: floatingStats.open_trades || 0,
-            today_pnl: todayStats.today_pnl || 0,
-            month_pnl: monthStats.month_pnl || 0,
+            today_pnl: todayStats ? todayStats.today_pnl : 0,
+            month_pnl: monthStats ? monthStats.month_pnl : 0,
             total_closed_profit: overallTrades.total_closed_profit || 0,
             win_rate: Number(winRate),
             profit_factor: profitFactor,
@@ -293,21 +288,19 @@ router.get('/overview', (req, res) => {
 });
 
 
-/**
- * 2.2 Accounts List (with live status & metrics)
- */
 router.get('/accounts', (req, res) => {
     try {
+        const todayStr = new Date().toISOString().slice(0, 10);
         const accounts = db.prepare(`
             SELECT 
                 a.*,
                 COALESCE((SELECT SUM(profit + swap) FROM open_positions WHERE account_number = a.account_number), 0) as floating_pnl,
                 COALESCE((SELECT COUNT(*) FROM open_positions WHERE account_number = a.account_number), 0) as open_count,
-                COALESCE((SELECT SUM(net_profit) FROM trades WHERE account_number = a.account_number AND substr(close_time, 1, 10) = date('now')), 0) as today_profit,
+                COALESCE((SELECT SUM(net_profit) FROM trades WHERE account_number = a.account_number AND substr(REPLACE(close_time, '.', '-'), 1, 10) = ?), 0) as today_profit,
                 COALESCE((SELECT SUM(net_profit) FROM trades WHERE account_number = a.account_number), 0) as total_profit
             FROM accounts a
             ORDER BY a.account_number ASC
-        `).all();
+        `).all(todayStr);
 
         res.json({ success: true, accounts });
     } catch (err) {
@@ -316,9 +309,6 @@ router.get('/accounts', (req, res) => {
 });
 
 
-/**
- * 2.3 Magic Numbers / EA List (with performance)
- */
 router.get('/eas', (req, res) => {
     try {
         const eas = db.prepare(`
@@ -346,34 +336,7 @@ router.get('/eas', (req, res) => {
 
 
 /**
- * 2.4 Update EA Custom Name / Color
- */
-router.post('/eas', (req, res) => {
-    try {
-        const { magic_number, ea_name, color, description } = req.body;
-        if (!magic_number) {
-            return res.status(400).json({ success: false, error: 'Magic number is required' });
-        }
-
-        db.prepare(`
-            INSERT INTO ea_registry (magic_number, ea_name, color, description)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(magic_number) DO UPDATE SET
-                ea_name = excluded.ea_name,
-                color = excluded.color,
-                description = excluded.description
-        `).run(Number(magic_number), ea_name || `EA #${magic_number}`, color || '#3b82f6', description || '');
-
-        res.json({ success: true, message: 'EA registered successfully' });
-    } catch (err) {
-        res.status(500).json({ success: false, error: err.message });
-    }
-});
-
-
-/**
- * 2.5 Calendar Data (Daily PnL grouped by Date for any month)
- * Filters: ?year=2025&month=03 &account=... &magic=...
+ * 📅 2.5 CALENDAR DATA ENDPOINT (Fixed Date Matching)
  */
 router.get('/calendar', (req, res) => {
     try {
@@ -384,7 +347,7 @@ router.get('/calendar', (req, res) => {
 
         const { account, magic } = req.query;
 
-        let where = 'WHERE substr(close_time, 1, 7) = ?';
+        let where = "WHERE substr(REPLACE(close_time, '.', '-'), 1, 7) = ?";
         let params = [monthPrefix];
 
         if (account && account !== 'all') {
@@ -398,18 +361,17 @@ router.get('/calendar', (req, res) => {
 
         const dailyStats = db.prepare(`
             SELECT 
-                substr(close_time, 1, 10) as date,
+                substr(REPLACE(close_time, '.', '-'), 1, 10) as date,
                 COALESCE(SUM(net_profit), 0) as profit,
                 COUNT(*) as trades_count,
                 SUM(CASE WHEN net_profit > 0 THEN 1 ELSE 0 END) as wins,
                 SUM(CASE WHEN net_profit < 0 THEN 1 ELSE 0 END) as losses
             FROM trades
             ${where}
-            GROUP BY substr(close_time, 1, 10)
+            GROUP BY substr(REPLACE(close_time, '.', '-'), 1, 10)
             ORDER BY date ASC
         `).all(...params);
 
-        // Calculate Monthly Totals
         const monthTotal = dailyStats.reduce((sum, d) => sum + d.profit, 0);
         const totalMonthTrades = dailyStats.reduce((sum, d) => sum + d.trades_count, 0);
 
@@ -428,10 +390,6 @@ router.get('/calendar', (req, res) => {
 });
 
 
-/**
- * 2.6 Chart Data: Equity / Cumulative Profit Curve
- * Filters: ?account=... &magic=...
- */
 router.get('/charts/equity-curve', (req, res) => {
     try {
         const { account, magic } = req.query;
@@ -450,7 +408,7 @@ router.get('/charts/equity-curve', (req, res) => {
 
         const trades = db.prepare(`
             SELECT 
-                close_time,
+                REPLACE(close_time, '.', '-') as close_time,
                 net_profit,
                 symbol,
                 magic_number
@@ -477,10 +435,6 @@ router.get('/charts/equity-curve', (req, res) => {
 });
 
 
-/**
- * 2.7 Open Positions List (Live Table)
- * Filters: ?account=... &magic=...
- */
 router.get('/open-positions', (req, res) => {
     try {
         const { account, magic } = req.query;
