@@ -185,6 +185,39 @@ router.post('/ea/sync', (req, res) => {
     }
 });
 
+const STALE_SECONDS = 30; // terminals with no sync for 30s are deleted (EA syncs every 5s)
+
+function purgeAccount(accountNumber) {
+  const acc = String(accountNumber);
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM open_positions WHERE account_number = ?').run(acc);
+    db.prepare('DELETE FROM trades          WHERE account_number = ?').run(acc);
+    db.prepare('DELETE FROM daily_snapshots WHERE account_number = ?').run(acc);
+    db.prepare('DELETE FROM accounts        WHERE account_number = ?').run(acc);
+    db.prepare(`DELETE FROM ea_registry
+       WHERE magic_number NOT IN (SELECT DISTINCT magic_number FROM trades)
+         AND magic_number NOT IN (SELECT DISTINCT magic_number FROM open_positions)`).run();
+  });
+  tx();
+}
+
+// (a) Explicit disconnect signal from EA
+router.post('/ea/disconnect', (req, res) => {
+  const b = req.body || {};
+  const accountNumber = b.account_number || (b.account && b.account.account_number);
+  if (!accountNumber) return res.status(400).json({ success:false, error:'Missing account_number' });
+  purgeAccount(accountNumber);
+  return res.json({ success:true, message:`Account ${accountNumber} data removed` });
+});
+
+// (b) Timeout safety-net triggered every 10s
+setInterval(() => {
+  const stale = db.prepare(
+    `SELECT account_number FROM accounts
+     WHERE (julianday('now') - julianday(last_update)) * 86400 > ?`).all(STALE_SECONDS);
+  stale.forEach(r => purgeAccount(r.account_number));
+}, 10000);
+
 
 // ==========================================
 // 📊 2. DASHBOARD DATA ENDPOINTS
