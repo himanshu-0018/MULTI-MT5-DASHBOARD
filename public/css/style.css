@@ -101,8 +101,8 @@ body {
 
 /* styled native selects */
 .select-wrap { position: relative; display: flex; align-items: center; }
-.select-wrap > i:first-child { position: absolute; left: 10px; pointer-events: none; z-index: 1; }
-.select-wrap .caret { position: absolute; right: 8px; pointer-events: none; }
+.select-wrap .sw-lead { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; z-index: 1; }
+.select-wrap .caret { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); pointer-events: none; }
 .select-wrap select {
   appearance: none; -webkit-appearance: none;
   background: rgba(15,23,42,0.7); border: 1px solid rgba(255,255,255,0.1);
