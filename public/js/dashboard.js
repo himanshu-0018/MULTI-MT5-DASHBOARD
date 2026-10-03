@@ -169,7 +169,10 @@ function animateValue(el, end, { decimals = 0, prefix = '', suffix = '', duratio
 // ─── typing headline ───
 function typeHeadline(text) {
   const el = $('typed'); if (!el) return; let i = 0;
-  const id = setInterval(() => { i++; el.textContent = text.slice(0, i); if (i >= text.length) clearInterval(id); }, 90);
+  const id = setInterval(() => {
+    i++; el.textContent = text.slice(0, i);
+    if (i >= text.length) { clearInterval(id); setTimeout(() => { const c = $('typeCaret'); if (c) c.style.display = 'none'; }, 1200); }
+  }, 90);
 }
 
 // ─── scroll reveal ───
