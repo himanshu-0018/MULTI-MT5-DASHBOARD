@@ -1,457 +1,165 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MT5 Multi-Account Command Center</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --bg: #05070e;
-            --panel: 15, 23, 42;
-            --cyan: #22d3ee;
-            --cyan-bright: #00e5ff;
-            --emerald: #10b981;
-            --rose: #f43f5e;
-            --violet: #8b5cf6;
-            --amber: #f59e0b;
-        }
-        * { -webkit-tap-highlight-color: transparent; }
-        body {
-            font-family: 'Inter', sans-serif;
-            background: var(--bg);
-            color: #e7ecf3;
-            overflow-x: hidden;
-        }
-        h1, h2, h3, .font-display { font-family: 'Sora', sans-serif; letter-spacing: -0.02em; }
-        .mono { font-family: 'JetBrains Mono', monospace; }
-        ::selection { background: rgba(34,211,238,0.3); color: #fff; }
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MT5 Multi-Account Command Center</title>
 
-        /* ─── ANIMATED AURORA BACKGROUND ─── */
-        .bg-stage { position: fixed; inset: 0; z-index: -2; overflow: hidden; background:
-            radial-gradient(1200px 600px at 15% -10%, rgba(34,211,238,0.10), transparent 60%),
-            radial-gradient(1000px 500px at 100% 0%, rgba(139,92,246,0.10), transparent 55%),
-            var(--bg); }
-        .blob { position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.5; mix-blend-mode: screen; }
-        .blob-1 { width: 520px; height: 520px; background: radial-gradient(circle, rgba(0,229,255,0.5), transparent 70%); top: -120px; left: -80px; animation: drift1 18s ease-in-out infinite; }
-        .blob-2 { width: 460px; height: 460px; background: radial-gradient(circle, rgba(139,92,246,0.45), transparent 70%); top: 20%; right: -120px; animation: drift2 22s ease-in-out infinite; }
-        .blob-3 { width: 400px; height: 400px; background: radial-gradient(circle, rgba(16,185,129,0.35), transparent 70%); bottom: -140px; left: 30%; animation: drift3 26s ease-in-out infinite; }
-        @keyframes drift1 { 0%,100%{ transform: translate(0,0) scale(1);} 50%{ transform: translate(120px,80px) scale(1.15);} }
-        @keyframes drift2 { 0%,100%{ transform: translate(0,0) scale(1);} 50%{ transform: translate(-100px,60px) scale(1.1);} }
-        @keyframes drift3 { 0%,100%{ transform: translate(0,0) scale(1);} 50%{ transform: translate(60px,-90px) scale(1.2);} }
-        .bg-grid { position: fixed; inset: 0; z-index: -1; pointer-events: none;
-            background-image: linear-gradient(rgba(148,163,184,0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.045) 1px, transparent 1px);
-            background-size: 46px 46px; mask-image: radial-gradient(ellipse 100% 80% at 50% 0%, #000 40%, transparent 85%); }
+  <!-- Tailwind (utility classes) + icons + fonts -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
 
-        /* ─── GLASS PANELS ─── */
-        .glass-panel {
-            position: relative;
-            background: linear-gradient(180deg, rgba(var(--panel),0.72), rgba(10,15,27,0.78));
-            backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
-            border: 1px solid rgba(255,255,255,0.07);
-            box-shadow: 0 20px 50px -24px rgba(0,0,0,0.9), inset 0 1px 0 rgba(255,255,255,0.05);
-            transition: transform .4s cubic-bezier(.22,1,.36,1), border-color .4s, box-shadow .4s;
-        }
-        .glass-panel::before {
-            content: ''; position: absolute; inset: 0; border-radius: inherit; padding: 1px; pointer-events: none;
-            background: linear-gradient(120deg, rgba(34,211,238,0.35), transparent 30%, transparent 70%, rgba(139,92,246,0.3));
-            -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-            -webkit-mask-composite: xor; mask-composite: exclude; opacity: .55;
-        }
-        .lift:hover { transform: translateY(-4px); border-color: rgba(34,211,238,0.3); box-shadow: 0 30px 60px -28px rgba(0,0,0,0.95), 0 0 40px -12px rgba(34,211,238,0.25); }
-
-        .glow-green { box-shadow: 0 20px 50px -24px rgba(0,0,0,0.9), 0 0 40px -10px rgba(16,185,129,0.30); }
-        .glow-red { box-shadow: 0 20px 50px -24px rgba(0,0,0,0.9), 0 0 40px -10px rgba(244,63,94,0.30); }
-        .glow-blue { box-shadow: 0 20px 50px -24px rgba(0,0,0,0.9), 0 0 44px -10px rgba(34,211,238,0.22); }
-
-        ::-webkit-scrollbar { width: 7px; height: 7px; }
-        ::-webkit-scrollbar-track { background: #0b0f19; }
-        ::-webkit-scrollbar-thumb { background: linear-gradient(#334155,#1e293b); border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: #475569; }
-        .apexcharts-tooltip { border: none !important; background: transparent !important; box-shadow: none !important; }
-        .apexcharts-tooltip.apexcharts-theme-dark { background: transparent !important; }
-
-        /* ─── ENTRANCE ─── */
-        @keyframes fadeInUp { from { opacity: 0; transform: translateY(22px); } to { opacity: 1; transform: translateY(0); } }
-        .reveal { opacity: 0; animation: fadeInUp .7s cubic-bezier(.22,1,.36,1) forwards; }
-        .d1{animation-delay:.05s}.d2{animation-delay:.13s}.d3{animation-delay:.21s}.d4{animation-delay:.29s}
-        .d5{animation-delay:.37s}.d6{animation-delay:.45s}.d7{animation-delay:.53s}.d8{animation-delay:.61s}
-
-        /* ─── GRADIENT TEXT ─── */
-        .grad-text { background: linear-gradient(100deg,#fff 0%,#a5f3fc 45%,#c4b5fd 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
-
-        /* ─── PULSE DOT ─── */
-        .pulse-dot { position: relative; }
-        .pulse-dot::after { content:''; position:absolute; inset:-5px; border-radius:50%; border:2px solid currentColor; opacity:.6; animation: pulseRing 1.6s ease-out infinite; }
-        @keyframes pulseRing { 0%{ transform: scale(.6); opacity:.7;} 100%{ transform: scale(2.2); opacity:0;} }
-
-        /* ─── EQUITY SECTION ─── */
-        .eq-panel { position: relative; border-radius: 26px; overflow: hidden;
-            background: linear-gradient(180deg, rgba(12,18,32,0.9), rgba(8,12,22,0.92));
-            border: 1px solid rgba(34,211,238,0.14);
-            box-shadow: 0 40px 90px -40px rgba(0,0,0,0.95), inset 0 1px 0 rgba(255,255,255,0.05); }
-        .eq-panel::before { content:''; position:absolute; inset:0; pointer-events:none;
-            background: radial-gradient(700px 320px at 12% -10%, rgba(34,211,238,0.12), transparent 60%),
-                        radial-gradient(600px 300px at 100% 120%, rgba(139,92,246,0.12), transparent 60%); }
-        .eq-border { position:absolute; inset:0; border-radius:26px; padding:1px; pointer-events:none;
-            background: linear-gradient(130deg, rgba(34,211,238,0.6), transparent 25%, transparent 72%, rgba(139,92,246,0.55));
-            -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-            -webkit-mask-composite: xor; mask-composite: exclude;
-            background-size: 200% 200%; animation: borderFlow 7s ease infinite; }
-        @keyframes borderFlow { 0%,100%{ background-position:0% 50%;} 50%{ background-position:100% 50%;} }
-
-        .eq-badge { position: relative; overflow: hidden; border-radius: 16px; padding: 14px 16px;
-            background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.06); transition: .35s; }
-        .eq-badge:hover { border-color: rgba(34,211,238,0.3); background: rgba(34,211,238,0.05); transform: translateY(-2px); }
-        .eq-badge .sheen { position:absolute; top:0; left:-60%; width:40%; height:100%; transform: skewX(-20deg);
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent); animation: sheen 4.5s ease-in-out infinite; }
-        @keyframes sheen { 0%{ left:-60%;} 60%,100%{ left:140%;} }
-
-        /* segmented range control */
-        .eq-range { position: relative; padding: 7px 16px; font-size: 12px; font-weight: 700; letter-spacing: .04em;
-            color: #7e8aa0; border-radius: 11px; cursor: pointer; transition: color .3s; z-index: 1; }
-        .eq-range.active { color: #04121a; }
-        .eq-range.active::before { content:''; position:absolute; inset:0; z-index:-1; border-radius:11px;
-            background: linear-gradient(120deg,#22d3ee,#06b6d4); box-shadow: 0 6px 20px -4px rgba(34,211,238,0.6); }
-        .eq-range:not(.active):hover { color: #cbd5e1; }
-
-        /* scanline over chart */
-        .scanline { position:absolute; top:0; bottom:0; width:120px; pointer-events:none; z-index:2;
-            background: linear-gradient(90deg, transparent, rgba(34,211,238,0.06), transparent);
-            animation: scan 6s linear infinite; opacity:.8; }
-        @keyframes scan { 0%{ transform: translateX(-120px);} 100%{ transform: translateX(calc(100% + 120px));} }
-
-        .live-chip { display:inline-flex; align-items:center; gap:7px; padding:5px 12px; border-radius:999px;
-            background: rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.25); }
-        .live-chip .dot { width:7px; height:7px; border-radius:50%; background:#10b981; box-shadow:0 0 10px #10b981; animation: blink 1.4s infinite; }
-        @keyframes blink { 0%,100%{ opacity:1;} 50%{ opacity:.25;} }
-
-        .icon-chip { display:grid; place-items:center; border-radius:14px; transition:.35s; }
-        .lift:hover .icon-chip { transform: scale(1.08) rotate(-4px); }
-
-        .count { font-variant-numeric: tabular-nums; }
-        button, select, a { outline: none; }
-        .btn-ghost { transition: transform .25s, background .25s, border-color .25s; }
-        .btn-ghost:hover { transform: translateY(-1px); }
-        .btn-ghost:active { transform: scale(.94); }
-        #refreshBtn.spin i { animation: spin .8s linear; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
-    </style>
+  <!-- Custom futuristic styles -->
+  <link rel="stylesheet" href="/css/style.css" />
 </head>
-<body class="min-h-screen flex flex-col antialiased">
-    <div class="bg-stage"><div class="blob blob-1"></div><div class="blob blob-2"></div><div class="blob blob-3"></div></div>
-    <div class="bg-grid"></div>
+<body class="min-h-screen flex flex-col antialiased text-slate-100">
 
-    <!-- ═══ TOP NAV BAR ═══ -->
-    <header class="glass-panel sticky top-0 z-50 border-b border-white/5 px-6 py-4 reveal d1">
-        <div class="max-w-[1400px] mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
-            <div class="flex items-center space-x-3">
-                <div class="icon-chip w-11 h-11 bg-gradient-to-tr from-cyan-400 to-blue-600 shadow-lg shadow-cyan-500/30">
-                    <i data-lucide="activity" class="w-6 h-6 text-white"></i>
-                </div>
-                <div>
-                    <h1 class="font-extrabold text-xl grad-text">MT5 Command Center</h1>
-                    <div class="flex items-center space-x-2 text-xs text-gray-400">
-                        <span class="pulse-dot text-emerald-400"><span class="block w-2 h-2 rounded-full bg-emerald-400"></span></span>
-                        <span id="syncStatus" class="ml-1">Cloud Sync Active</span>
-                        <span class="text-gray-600">•</span>
-                        <span id="lastUpdated" class="mono text-gray-500">Updating...</span>
-                    </div>
-                </div>
-            </div>
-            <div class="flex flex-wrap items-center gap-3">
-                <div class="relative">
-                    <select id="accountFilter" class="bg-slate-900/80 border border-white/10 text-gray-200 text-sm rounded-xl px-3 py-2.5 pr-8 focus:ring-2 focus:ring-cyan-500/60 focus:border-cyan-500/50 appearance-none cursor-pointer hover:border-cyan-500/40 transition">
-                        <option value="all">All Accounts</option>
-                    </select>
-                    <i data-lucide="chevron-down" class="w-4 h-4 text-gray-400 absolute right-2.5 top-3 pointer-events-none"></i>
-                </div>
-                <div class="relative">
-                    <select id="magicFilter" class="bg-slate-900/80 border border-white/10 text-gray-200 text-sm rounded-xl px-3 py-2.5 pr-8 focus:ring-2 focus:ring-cyan-500/60 focus:border-cyan-500/50 appearance-none cursor-pointer hover:border-cyan-500/40 transition">
-                        <option value="all">All EAs</option>
-                    </select>
-                    <i data-lucide="chevron-down" class="w-4 h-4 text-gray-400 absolute right-2.5 top-3 pointer-events-none"></i>
-                </div>
-                <button id="refreshBtn" onclick="refreshDashboard(true)" class="btn-ghost p-2.5 bg-slate-800/70 hover:bg-cyan-500/15 text-gray-300 rounded-xl border border-white/10 hover:border-cyan-500/40 hover:text-cyan-300" title="Refresh" data-testid="refresh-dashboard-btn">
-                    <i data-lucide="rotate-cw" class="w-4 h-4"></i>
-                </button>
-            </div>
+  <!-- ═══ IMMERSIVE BACKGROUND ═══ -->
+  <div id="bg" class="fixed inset-0 -z-10 overflow-hidden" aria-hidden="true">
+    <div class="absolute inset-0 bg-[#05070f]"></div>
+    <div class="absolute inset-0" style="background: radial-gradient(1200px circle at 20% -10%, rgba(34,211,238,0.10), transparent 55%), radial-gradient(1000px circle at 100% 10%, rgba(168,85,247,0.10), transparent 50%);"></div>
+    <div class="absolute inset-0 grid-mask"></div>
+    <div class="orb orb-cyan"></div>
+    <div class="orb orb-violet"></div>
+    <div class="orb orb-emerald"></div>
+    <canvas id="stars" class="absolute inset-0"></canvas>
+    <div id="spotlight" class="absolute inset-0"></div>
+  </div>
+
+  <!-- ═══ LOADING SCREEN ═══ -->
+  <div id="loader" class="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-[#05070f] transition-opacity duration-700">
+    <div class="relative w-28 h-28">
+      <span class="absolute inset-0 rounded-2xl border border-cyan-400/30 loader-ring"></span>
+      <span class="absolute inset-2 rounded-2xl border border-violet-400/30 loader-ring-2"></span>
+      <div class="absolute inset-0 flex items-center justify-center">
+        <div class="w-16 h-16 rounded-2xl grad-cyan-violet flex items-center justify-center loader-pop" style="box-shadow:0 0 40px rgba(34,211,238,0.5)">
+          <i data-lucide="activity" class="w-9 h-9 text-white"></i>
         </div>
-    </header>
+      </div>
+    </div>
+    <div class="mt-8 font-display text-sm uppercase tracking-[0.5em] text-slate-400 loader-text">MT5 Command Center</div>
+    <div class="mt-5 h-[3px] w-48 overflow-hidden rounded-full bg-slate-800"><div class="h-full grad-cyan-violet loader-bar"></div></div>
+  </div>
 
-    <!-- ═══ MAIN CONTENT ═══ -->
-    <main class="flex-1 max-w-[1400px] w-full mx-auto px-4 sm:px-6 py-8 space-y-8">
+  <!-- ═══ TOP NAV ═══ -->
+  <header class="sticky top-0 z-50 glass border-b border-white/5">
+    <div class="max-w-[1400px] mx-auto flex flex-col md:flex-row items-center justify-between gap-4 px-5 py-3.5">
+      <div class="flex items-center gap-3">
+        <div class="w-11 h-11 rounded-xl grad-cyan-violet flex items-center justify-center float-soft" style="box-shadow:0 0 25px rgba(34,211,238,0.35)">
+          <i data-lucide="activity" class="w-6 h-6 text-white"></i>
+        </div>
+        <div>
+          <h1 class="font-display text-lg font-bold tracking-tight text-gradient">MT5 Command Center</h1>
+          <div class="flex items-center gap-2 text-[11px] text-slate-400">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" style="box-shadow:0 0 8px #34d399"></span>
+            <span>Cloud Sync Active</span><span class="text-slate-600">•</span>
+            <span id="lastUpdated" class="font-mono">Updating…</span>
+          </div>
+        </div>
+      </div>
+      <div class="flex flex-wrap items-center gap-2.5">
+        <div class="select-wrap"><i data-lucide="globe" class="w-4 h-4 text-cyan-400"></i>
+          <select id="accountFilter"><option value="all">All Accounts</option></select>
+          <i data-lucide="chevron-down" class="w-4 h-4 text-slate-400 caret"></i>
+        </div>
+        <div class="select-wrap"><i data-lucide="zap" class="w-4 h-4 text-violet-400"></i>
+          <select id="magicFilter"><option value="all">All EAs</option></select>
+          <i data-lucide="chevron-down" class="w-4 h-4 text-slate-400 caret"></i>
+        </div>
+        <button onclick="refreshDashboard(true)" title="Refresh" class="h-10 w-10 flex items-center justify-center rounded-lg bg-slate-900/70 border border-white/10 text-slate-300 hover:text-white hover:border-cyan-400/40 transition">
+          <i data-lucide="rotate-cw" class="w-4 h-4" id="refreshIcon"></i>
+        </button>
+      </div>
+    </div>
+  </header>
 
-        <!-- 1. KPI STATS CARDS -->
-        <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-            <div class="glass-panel lift p-5 rounded-2xl glow-blue reveal d1" data-testid="kpi-balance">
-                <div class="flex justify-between items-start mb-3">
-                    <span class="text-[11px] font-semibold uppercase tracking-widest text-gray-500">Balance & Equity</span>
-                    <span class="icon-chip p-2.5 bg-cyan-500/10 text-cyan-300 border border-cyan-500/20"><i data-lucide="wallet" class="w-4 h-4"></i></span>
-                </div>
-                <div class="text-2xl font-extrabold text-white count mono" id="totalBalance">$0.00</div>
-                <div class="flex items-center justify-between mt-2 text-xs text-gray-400">
-                    <span>Equity: <strong class="text-cyan-200 mono" id="totalEquity">$0.00</strong></span>
-                    <span id="accountCountBadge" class="bg-white/5 text-gray-300 px-2 py-0.5 rounded-full mono text-[10px] border border-white/10">0 Accs</span>
-                </div>
-            </div>
+  <!-- ═══ MAIN ═══ -->
+  <main class="flex-1 w-full max-w-[1400px] mx-auto px-4 sm:px-6 py-8 space-y-8">
 
-            <div class="glass-panel lift p-5 rounded-2xl reveal d2" id="todayCard" data-testid="kpi-today">
-                <div class="flex justify-between items-start mb-3">
-                    <span class="text-[11px] font-semibold uppercase tracking-widest text-gray-500">Today's P&L</span>
-                    <span class="icon-chip p-2.5 bg-emerald-500/10 text-emerald-300 border border-emerald-500/20"><i data-lucide="trending-up" class="w-4 h-4"></i></span>
-                </div>
-                <div class="text-2xl font-extrabold count mono" id="todayPnl">$0.00</div>
-                <div class="mt-2 text-xs text-gray-400 flex items-center space-x-1">
-                    <span>Floating:</span>
-                    <span id="floatingPnl" class="font-semibold mono">$0.00</span>
-                    <span class="text-gray-500">(<span id="openCount">0</span> open)</span>
-                </div>
-            </div>
+    <!-- HERO -->
+    <section class="reveal relative text-center py-10 sm:py-14">
+      <span class="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.3em] text-cyan-300/80 border border-cyan-400/20 rounded-full px-4 py-1.5 bg-cyan-400/5"><i data-lucide="cpu" class="w-3.5 h-3.5"></i> Real-time EA Telemetry</span>
+      <h1 class="mt-6 font-display text-4xl sm:text-6xl font-extrabold tracking-tight">
+        <span class="text-gradient">Multi-Account</span><br />
+        <span class="text-white">Command <span id="typed"></span><span class="type-caret"></span></span>
+      </h1>
+      <p class="mt-5 max-w-xl mx-auto text-sm sm:text-base text-slate-400">Monitor every MT5 terminal, Expert Advisor and open position across your entire trading fleet — unified in one luminous dashboard.</p>
+      <div class="mt-10 flex items-center justify-center gap-8 sm:gap-14 flex-wrap">
+        <div class="text-center"><div id="heroAccounts" class="text-2xl sm:text-3xl font-extrabold font-display text-cyan-400">0</div><div class="text-[10px] uppercase tracking-[0.25em] text-slate-500 mt-1">Accounts</div></div>
+        <div class="text-center"><div id="heroEAs" class="text-2xl sm:text-3xl font-extrabold font-display text-violet-400">0</div><div class="text-[10px] uppercase tracking-[0.25em] text-slate-500 mt-1">Active EAs</div></div>
+        <div class="text-center"><div id="heroProfit" class="text-2xl sm:text-3xl font-extrabold font-display text-emerald-400">$0</div><div class="text-[10px] uppercase tracking-[0.25em] text-slate-500 mt-1">Net Profit</div></div>
+        <div class="text-center"><div id="heroWin" class="text-2xl sm:text-3xl font-extrabold font-display text-amber-400">0%</div><div class="text-[10px] uppercase tracking-[0.25em] text-slate-500 mt-1">Win Rate</div></div>
+      </div>
+    </section>
 
-            <div class="glass-panel lift p-5 rounded-2xl reveal d3" data-testid="kpi-month">
-                <div class="flex justify-between items-start mb-3">
-                    <span class="text-[11px] font-semibold uppercase tracking-widest text-gray-500">Month P&L</span>
-                    <span class="icon-chip p-2.5 bg-violet-500/10 text-violet-300 border border-violet-500/20"><i data-lucide="calendar" class="w-4 h-4"></i></span>
-                </div>
-                <div class="text-2xl font-extrabold count mono text-white" id="monthPnl">$0.00</div>
-                <div class="mt-2 text-xs text-gray-400">
-                    Closed All-time: <span id="totalClosedPnl" class="font-semibold text-gray-200 mono">$0.00</span>
-                </div>
-            </div>
+    <!-- KPI CARDS -->
+    <section class="reveal grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+      <div class="glass card-glow rounded-2xl p-5 relative overflow-hidden" style="--accent:#3b82f6">
+        <span class="orb-mini" style="background:#3b82f6"></span>
+        <div class="flex justify-between items-start mb-3"><span class="kpi-label">Balance &amp; Equity</span><span class="p-2 rounded-lg bg-blue-500/10 text-blue-400"><i data-lucide="wallet" class="w-4 h-4"></i></span></div>
+        <div class="text-2xl font-extrabold text-white tracking-tight font-display" id="totalBalance">$0.00</div>
+        <div class="flex items-center justify-between mt-2 text-xs text-slate-400"><span>Equity: <strong class="text-slate-200" id="totalEquity">$0.00</strong></span><span id="accountCountBadge" class="bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full font-mono text-[10px]">0 Accs</span></div>
+      </div>
+      <div class="glass card-glow rounded-2xl p-5 relative overflow-hidden" id="todayCard" style="--accent:#34d399">
+        <span class="orb-mini" id="todayOrb" style="background:#34d399"></span>
+        <div class="flex justify-between items-start mb-3"><span class="kpi-label">Today's P&amp;L</span><span class="p-2 rounded-lg bg-emerald-500/10 text-emerald-400" id="todayIconWrap"><i data-lucide="trending-up" class="w-4 h-4" id="todayIcon"></i></span></div>
+        <div class="text-2xl font-extrabold tracking-tight font-display text-emerald-400" id="todayPnl">$0.00</div>
+        <div class="mt-2 text-xs text-slate-400 flex items-center gap-1"><span>Floating:</span><span id="floatingPnl" class="font-semibold text-emerald-400">$0.00</span><span class="text-slate-500">(<span id="openCount">0</span> open)</span></div>
+      </div>
+      <div class="glass card-glow rounded-2xl p-5 relative overflow-hidden" style="--accent:#a855f7">
+        <span class="orb-mini" style="background:#a855f7"></span>
+        <div class="flex justify-between items-start mb-3"><span class="kpi-label">Month P&amp;L</span><span class="p-2 rounded-lg bg-violet-500/10 text-violet-400"><i data-lucide="calendar-range" class="w-4 h-4"></i></span></div>
+        <div class="text-2xl font-extrabold tracking-tight font-display text-emerald-400" id="monthPnl">$0.00</div>
+        <div class="mt-2 text-xs text-slate-400">Closed All-time: <span id="totalClosedPnl" class="font-semibold text-slate-200">$0.00</span></div>
+      </div>
+      <div class="glass card-glow rounded-2xl p-5 relative overflow-hidden" style="--accent:#fbbf24">
+        <span class="orb-mini" style="background:#fbbf24"></span>
+        <div class="flex justify-between items-start mb-3"><span class="kpi-label">Performance</span><span class="p-2 rounded-lg bg-amber-500/10 text-amber-400"><i data-lucide="award" class="w-4 h-4"></i></span></div>
+        <div class="flex items-baseline gap-2"><span class="text-2xl font-extrabold text-white font-display" id="winRate">0%</span><span class="text-xs text-slate-400">Win Rate</span></div>
+        <div class="mt-2 text-xs text-slate-400 flex items-center justify-between"><span>PF: <strong class="text-slate-200" id="profitFactor">0.00</strong></span><span>Trades: <strong class="text-slate-200" id="totalTradesCount">0</strong></span></div>
+      </div>
+    </section>
 
-            <div class="glass-panel lift p-5 rounded-2xl reveal d4" data-testid="kpi-performance">
-                <div class="flex justify-between items-start mb-3">
-                    <span class="text-[11px] font-semibold uppercase tracking-widest text-gray-500">Performance</span>
-                    <span class="icon-chip p-2.5 bg-amber-500/10 text-amber-300 border border-amber-500/20"><i data-lucide="award" class="w-4 h-4"></i></span>
-                </div>
-                <div class="flex items-baseline space-x-3">
-                    <span class="text-2xl font-extrabold text-white count mono" id="winRate">0%</span>
-                    <span class="text-xs text-gray-400 font-medium">Win Rate</span>
-                </div>
-                <div class="mt-2 text-xs text-gray-400 flex items-center justify-between">
-                    <span>PF: <strong class="text-gray-200 mono" id="profitFactor">0.00</strong></span>
-                    <span>Trades: <strong class="text-gray-200 mono" id="totalTradesCount">0</strong></span>
-                </div>
-            </div>
-        </section>
+    <!-- EQUITY CURVE -->
+    <section class="reveal glass gradient-border rounded-2xl p-6">
+      <div class="flex items-start justify-between gap-3 mb-4">
+        <div><h2 class="text-base font-bold text-white flex items-center gap-2 font-display"><i data-lucide="trending-up" class="w-5 h-5 text-cyan-400"></i>Cumulative Growth Curve</h2><p class="text-xs text-slate-500 mt-0.5">Net profit trajectory • peak &amp; valley auto-marked</p></div>
+        <div class="hidden sm:flex items-center gap-3 text-xs text-slate-400"><span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span> Peak</span><span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-rose-400"></span> Valley</span><span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-cyan-400"></span> Current</span></div>
+      </div>
+      <div id="equityChart" class="relative w-full"></div>
+    </section>
 
-        <!-- 2. ✦ REDESIGNED CUMULATIVE GROWTH CURVE ✦ -->
-        <section class="eq-panel reveal d4" data-testid="growth-curve-section">
-            <div class="eq-border"></div>
-            <div class="relative p-6 sm:p-7">
-                <!-- Header -->
-                <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
-                    <div class="flex items-start gap-3.5">
-                        <div class="icon-chip w-12 h-12 shrink-0 bg-gradient-to-br from-cyan-400/20 to-violet-500/20 border border-cyan-500/25 text-cyan-300">
-                            <i data-lucide="line-chart" class="w-6 h-6"></i>
-                        </div>
-                        <div>
-                            <h2 class="text-xl sm:text-2xl font-extrabold grad-text leading-tight">Cumulative Growth Curve</h2>
-                            <p class="text-xs text-gray-500 mt-0.5">Net equity trajectory • peak &amp; drawdown auto-tracked • zoom &amp; pan</p>
-                        </div>
-                    </div>
-                    <div class="flex items-center gap-3">
-                        <span class="live-chip text-emerald-300 text-xs font-semibold"><span class="dot"></span>LIVE</span>
-                        <div class="text-right">
-                            <div class="text-[10px] uppercase tracking-widest text-gray-500">Current</div>
-                            <div id="eqLiveValue" class="text-xl font-extrabold mono text-cyan-300">$0.00</div>
-                        </div>
-                    </div>
-                </div>
+    <!-- EA BARS + DONUT -->
+    <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div class="reveal glass rounded-2xl p-6 lg:col-span-2"><div class="mb-4"><h2 class="text-base font-bold text-white flex items-center gap-2 font-display"><i data-lucide="bot" class="w-5 h-5 text-violet-400"></i>P&amp;L by EA / Strategy</h2><p class="text-xs text-slate-500 mt-0.5">Profit contribution per magic number</p></div><div id="eaChart" class="space-y-3.5 pt-1"></div></div>
+      <div class="reveal glass rounded-2xl p-6"><div class="mb-4"><h2 class="text-base font-bold text-white flex items-center gap-2 font-display"><i data-lucide="pie-chart" class="w-5 h-5 text-amber-400"></i>Win / Loss Ratio</h2><p class="text-xs text-slate-500 mt-0.5">Overall trade success</p></div><div id="winLossChart"></div></div>
+    </section>
 
-                <!-- Stat badges -->
-                <div class="grid grid-cols-2 lg:grid-cols-4 gap-3.5 mb-6">
-                    <div class="eq-badge" data-testid="eq-stat-net">
-                        <div class="sheen"></div>
-                        <div class="flex items-center gap-2 text-[10px] uppercase tracking-widest text-gray-500"><i data-lucide="sigma" class="w-3.5 h-3.5 text-cyan-400"></i>Net P&amp;L</div>
-                        <div id="eqNet" class="mt-1.5 text-lg font-extrabold mono text-white">$0.00</div>
-                        <div id="eqNetSub" class="text-[11px] text-gray-500 mono">ROI 0.0%</div>
-                    </div>
-                    <div class="eq-badge" data-testid="eq-stat-peak">
-                        <div class="sheen"></div>
-                        <div class="flex items-center gap-2 text-[10px] uppercase tracking-widest text-gray-500"><i data-lucide="arrow-up-right" class="w-3.5 h-3.5 text-emerald-400"></i>Peak</div>
-                        <div id="eqPeak" class="mt-1.5 text-lg font-extrabold mono text-emerald-400">$0.00</div>
-                        <div id="eqPeakSub" class="text-[11px] text-gray-500 mono">All-time high</div>
-                    </div>
-                    <div class="eq-badge" data-testid="eq-stat-drawdown">
-                        <div class="sheen"></div>
-                        <div class="flex items-center gap-2 text-[10px] uppercase tracking-widest text-gray-500"><i data-lucide="arrow-down-right" class="w-3.5 h-3.5 text-rose-400"></i>Max Drawdown</div>
-                        <div id="eqDrawdown" class="mt-1.5 text-lg font-extrabold mono text-rose-400">$0.00</div>
-                        <div id="eqDrawdownSub" class="text-[11px] text-gray-500 mono">Peak to valley</div>
-                    </div>
-                    <div class="eq-badge" data-testid="eq-stat-trades">
-                        <div class="sheen"></div>
-                        <div class="flex items-center gap-2 text-[10px] uppercase tracking-widest text-gray-500"><i data-lucide="activity" class="w-3.5 h-3.5 text-violet-400"></i>Data Points</div>
-                        <div id="eqPoints" class="mt-1.5 text-lg font-extrabold mono text-white">0</div>
-                        <div id="eqRange" class="text-[11px] text-gray-500 mono">All time</div>
-                    </div>
-                </div>
+    <!-- CALENDAR -->
+    <section class="reveal glass rounded-2xl p-6 space-y-6">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
+        <div><h2 class="text-lg font-bold text-white flex items-center gap-2 font-display"><i data-lucide="calendar-days" class="w-5 h-5 text-emerald-400"></i>Daily P&amp;L Calendar</h2><p class="text-xs text-slate-500 mt-0.5">Day-by-day profitability heatmap</p></div>
+        <div class="flex items-center gap-3">
+          <div class="bg-slate-900/70 border border-white/10 px-4 py-1.5 rounded-xl text-sm font-semibold flex items-center gap-2"><span class="text-slate-400">Monthly:</span><span id="calendarMonthTotal" class="font-bold text-emerald-400">$0.00</span></div>
+          <div class="flex items-center bg-slate-900/70 border border-white/10 rounded-xl overflow-hidden p-0.5"><button onclick="changeMonth(-1)" class="p-1.5 hover:bg-white/10 text-slate-400 hover:text-white rounded-lg transition"><i data-lucide="chevron-left" class="w-4 h-4"></i></button><span id="calendarCurrentMonth" class="px-3 text-sm font-medium text-slate-200 w-32 text-center">—</span><button onclick="changeMonth(1)" class="p-1.5 hover:bg-white/10 text-slate-400 hover:text-white rounded-lg transition"><i data-lucide="chevron-right" class="w-4 h-4"></i></button></div>
+        </div>
+      </div>
+      <div><div class="grid grid-cols-7 gap-2 text-center text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-2"><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div><div>Sun</div></div><div id="calendarGrid" class="grid grid-cols-7 gap-2"></div></div>
+    </section>
 
-                <!-- Controls -->
-                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
-                    <div id="eqRangeTabs" class="inline-flex items-center gap-1 p-1 rounded-2xl bg-slate-900/60 border border-white/10 self-start">
-                        <button class="eq-range" data-range="1W" data-testid="range-1w">1W</button>
-                        <button class="eq-range" data-range="1M" data-testid="range-1m">1M</button>
-                        <button class="eq-range" data-range="3M" data-testid="range-3m">3M</button>
-                        <button class="eq-range active" data-range="ALL" data-testid="range-all">ALL</button>
-                    </div>
-                    <div class="flex items-center gap-4 text-xs text-gray-400">
-                        <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px] shadow-emerald-500"></span> Peak</span>
-                        <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-rose-500 shadow-[0_0_8px] shadow-rose-500"></span> Valley</span>
-                        <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-[0_0_8px] shadow-cyan-400"></span> Current</span>
-                    </div>
-                </div>
+    <!-- ACCOUNTS + POSITIONS -->
+    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div class="reveal glass rounded-2xl p-6 space-y-4"><h2 class="text-base font-bold text-white flex items-center gap-2 font-display"><i data-lucide="layers" class="w-5 h-5 text-cyan-400"></i>Connected MT5 Accounts</h2><p class="text-xs text-slate-500 -mt-2">Live terminals streaming to the cloud</p><div id="accountsGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[420px] overflow-y-auto pr-1"></div></div>
+      <div class="reveal glass rounded-2xl p-6 space-y-4 flex flex-col"><div class="flex items-center justify-between"><h2 class="text-base font-bold text-white flex items-center gap-2 font-display"><i data-lucide="radio" class="w-5 h-5 text-rose-400"></i>Active Open Positions</h2><span id="liveOpenBadge" class="text-xs bg-rose-500/10 text-rose-400 px-2.5 py-1 rounded-full font-mono border border-rose-500/20">0 Active</span></div><div class="overflow-x-auto flex-1 max-h-[380px]"><table class="w-full text-left text-xs"><thead class="text-slate-400 uppercase bg-slate-900/60 sticky top-0"><tr><th class="p-2.5 rounded-l-lg">EA</th><th class="p-2.5">Symbol</th><th class="p-2.5">Type</th><th class="p-2.5">Lots</th><th class="p-2.5">Entry</th><th class="p-2.5 rounded-r-lg text-right">Float P&amp;L</th></tr></thead><tbody id="openPositionsTable" class="divide-y divide-white/5 text-slate-300"></tbody></table></div></div>
+    </section>
 
-                <!-- Chart -->
-                <div class="relative">
-                    <div class="scanline"></div>
-                    <div id="equityChart" class="min-h-[420px]"></div>
-                    <div id="equityEmpty" class="hidden absolute inset-0 flex flex-col items-center justify-center text-gray-600 gap-2">
-                        <i data-lucide="line-chart" class="w-10 h-10 opacity-40"></i>
-                        <span class="text-sm">Waiting for trade history…</span>
-                    </div>
-                </div>
-            </div>
-        </section>
+    <!-- LEADERBOARD -->
+    <section class="reveal glass rounded-2xl p-6 space-y-4"><div class="pb-1"><h2 class="text-lg font-bold text-white flex items-center gap-2 font-display"><i data-lucide="trophy" class="w-5 h-5 text-amber-400"></i>EA Performance Leaderboard</h2><p class="text-xs text-slate-500 mt-0.5">Ranked by total net profit across all accounts</p></div><div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead class="text-xs text-slate-400 uppercase bg-slate-900/60"><tr><th class="p-3 text-center rounded-l-lg w-14">Rank</th><th class="p-3">EA / Strategy</th><th class="p-3 text-right">Net P&amp;L</th><th class="p-3 text-center">Trades</th><th class="p-3 text-center">W / L</th><th class="p-3 text-center">Win Rate</th><th class="p-3 text-right">Avg</th><th class="p-3 text-right rounded-r-lg">Open</th></tr></thead><tbody id="eaLeaderboardBody" class="divide-y divide-white/5"></tbody></table></div></section>
+  </main>
 
-        <!-- 3. CHARTS ROW 2: EA Breakdown + Win/Loss Donut -->
-        <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div class="glass-panel lift p-6 rounded-2xl lg:col-span-2 reveal d5">
-                <div class="mb-4">
-                    <h2 class="text-lg font-bold text-white flex items-center gap-2">
-                        <i data-lucide="bot" class="w-5 h-5 text-violet-400"></i>
-                        P&L by EA / Strategy
-                    </h2>
-                    <p class="text-xs text-gray-500">Profit contribution per magic number</p>
-                </div>
-                <div id="eaChart" class="min-h-[300px]"></div>
-            </div>
+  <footer class="border-t border-white/5 text-center py-6 text-xs text-slate-600">MT5 Multi-Account Command Center • <span id="dataMode" class="text-slate-500">Cloud</span></footer>
 
-            <div class="glass-panel lift p-6 rounded-2xl reveal d6">
-                <div class="mb-4">
-                    <h2 class="text-lg font-bold text-white flex items-center gap-2">
-                        <i data-lucide="pie-chart" class="w-5 h-5 text-amber-400"></i>
-                        Win / Loss Ratio
-                    </h2>
-                    <p class="text-xs text-gray-500">Overall trade success distribution</p>
-                </div>
-                <div id="winLossChart" class="min-h-[300px]"></div>
-            </div>
-        </section>
-
-        <!-- 4. CALENDAR -->
-        <section class="glass-panel lift p-6 rounded-2xl space-y-6 reveal d6">
-            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
-                <div>
-                    <h2 class="text-xl font-bold text-white flex items-center gap-2">
-                        <i data-lucide="calendar-days" class="w-5 h-5 text-emerald-400"></i>
-                        Daily P&L Calendar
-                    </h2>
-                    <p class="text-xs text-gray-500">Day-by-day profitability heatmap</p>
-                </div>
-                <div class="flex items-center gap-3">
-                    <div class="bg-slate-900/70 border border-white/10 px-4 py-1.5 rounded-xl text-sm font-semibold flex items-center gap-2">
-                        <span class="text-gray-400">Monthly:</span>
-                        <span id="calendarMonthTotal" class="font-bold text-emerald-400 mono">$0.00</span>
-                    </div>
-                    <div class="flex items-center bg-slate-900/70 border border-white/10 rounded-xl overflow-hidden p-0.5">
-                        <button onclick="changeMonth(-1)" class="btn-ghost p-1.5 hover:bg-cyan-500/15 text-gray-400 hover:text-cyan-300 rounded-lg" data-testid="cal-prev"><i data-lucide="chevron-left" class="w-4 h-4"></i></button>
-                        <span id="calendarCurrentMonth" class="px-3 text-sm font-medium text-gray-200">March 2025</span>
-                        <button onclick="changeMonth(1)" class="btn-ghost p-1.5 hover:bg-cyan-500/15 text-gray-400 hover:text-cyan-300 rounded-lg" data-testid="cal-next"><i data-lucide="chevron-right" class="w-4 h-4"></i></button>
-                    </div>
-                </div>
-            </div>
-            <div>
-                <div class="grid grid-cols-7 gap-2 text-center text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-2">
-                    <div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div><div>Sun</div>
-                </div>
-                <div id="calendarGrid" class="grid grid-cols-7 gap-2"></div>
-            </div>
-        </section>
-
-        <!-- 5. ACCOUNTS & OPEN POSITIONS -->
-        <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div class="glass-panel lift p-6 rounded-2xl space-y-4 reveal d7">
-                <h2 class="text-lg font-bold text-white flex items-center gap-2">
-                    <i data-lucide="layers" class="w-5 h-5 text-cyan-400"></i>
-                    Connected MT5 Accounts
-                </h2>
-                <div id="accountsGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto pr-1"></div>
-            </div>
-
-            <div class="glass-panel lift p-6 rounded-2xl space-y-4 flex flex-col reveal d7">
-                <div class="flex items-center justify-between">
-                    <h2 class="text-lg font-bold text-white flex items-center gap-2">
-                        <i data-lucide="radio" class="w-5 h-5 text-rose-400"></i>
-                        Active Open Positions
-                    </h2>
-                    <span id="liveOpenBadge" class="text-xs bg-rose-500/10 text-rose-300 px-2.5 py-1 rounded-full mono border border-rose-500/20">0 Active</span>
-                </div>
-                <div class="overflow-x-auto flex-1 max-h-[350px]">
-                    <table class="w-full text-left text-xs">
-                        <thead class="text-gray-400 uppercase bg-slate-900/60 sticky top-0 backdrop-blur">
-                            <tr>
-                                <th class="p-2.5 rounded-l-lg">EA</th>
-                                <th class="p-2.5">Symbol</th>
-                                <th class="p-2.5">Type</th>
-                                <th class="p-2.5">Lots</th>
-                                <th class="p-2.5">Entry</th>
-                                <th class="p-2.5 rounded-r-lg text-right">Float P&L</th>
-                            </tr>
-                        </thead>
-                        <tbody id="openPositionsTable" class="divide-y divide-white/5 text-gray-300">
-                            <tr><td colspan="6" class="text-center py-8 text-gray-600">No open positions</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </section>
-
-        <!-- 6. TOP PERFORMING EAs LEADERBOARD -->
-        <section class="glass-panel lift p-6 rounded-2xl space-y-4 reveal d8">
-            <div class="flex items-center justify-between pb-4 border-b border-white/5">
-                <div>
-                    <h2 class="text-xl font-bold text-white flex items-center gap-2">
-                        <i data-lucide="trophy" class="w-5 h-5 text-amber-400"></i>
-                        EA Performance Leaderboard
-                    </h2>
-                    <p class="text-xs text-gray-500">Ranked by total net profit across all accounts</p>
-                </div>
-            </div>
-
-            <div class="overflow-x-auto">
-                <table class="w-full text-left text-sm">
-                    <thead class="text-xs text-gray-400 uppercase bg-slate-900/60 sticky top-0 backdrop-blur">
-                        <tr>
-                            <th class="p-3 text-center rounded-l-lg w-14">Rank</th>
-                            <th class="p-3">EA / Strategy</th>
-                            <th class="p-3 text-right">Total Net P&L</th>
-                            <th class="p-3 text-center">Trades</th>
-                            <th class="p-3 text-center">W / L</th>
-                            <th class="p-3 text-center">Win Rate</th>
-                            <th class="p-3 text-right">Avg Trade</th>
-                            <th class="p-3 text-right rounded-r-lg">Open P&L</th>
-                        </tr>
-                    </thead>
-                    <tbody id="eaLeaderboardBody" class="divide-y divide-white/5">
-                        <tr><td colspan="8" class="text-center py-8 text-gray-600">Loading EA performance data...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </section>
-
-    </main>
-
-    <footer class="border-t border-white/5 text-center py-6 text-xs text-gray-600">
-        MT5 Multi-Account Command Center • Railway Cloud
-    </footer>
-
-    <script src="/js/dashboard.js"></script>
+  <script src="/js/dashboard.js"></script>
 </body>
 </html>
