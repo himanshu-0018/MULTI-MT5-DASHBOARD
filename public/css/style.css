@@ -114,6 +114,12 @@ body {
 .select-wrap select:focus { outline: none; border-color: #22d3ee; box-shadow: 0 0 0 2px rgba(34,211,238,0.2); }
 .select-wrap select option { background: #0f172a; color: #e2e8f0; }
 
+/* date range inputs */
+.date-input { background: rgba(15,23,42,0.7); border: 1px solid rgba(255,255,255,0.1); color: #e2e8f0; font-size: 12px; border-radius: 8px; height: 40px; padding: 0 8px; cursor: pointer; transition: border-color .2s ease; }
+.date-input:hover { border-color: rgba(34,211,238,0.4); }
+.date-input:focus { outline: none; border-color: #22d3ee; box-shadow: 0 0 0 2px rgba(34,211,238,0.2); }
+.date-input::-webkit-calendar-picker-indicator { filter: invert(0.7); cursor: pointer; }
+
 /* equity tooltip */
 .eq-tooltip { position: absolute; z-index: 20; transform: translate(-50%, -100%); pointer-events: none; }
 .eq-tooltip .box { border-radius: 12px; border: 1px solid rgba(34,211,238,0.3); background: rgba(11,16,32,0.95); padding: 8px 14px; box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 0 20px rgba(34,211,238,0.2); backdrop-filter: blur(6px); white-space: nowrap; }
