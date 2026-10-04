@@ -7,8 +7,26 @@
 
 let currentAccount = 'all';
 let currentMagic = 'all';
+let currentFrom = null;   // 'YYYY-MM-DD' or null (= all time)
+let currentTo = null;     // 'YYYY-MM-DD' or null
 let calendarDate = new Date();
 let usingMock = false;
+
+// ─── DATE RANGE HELPERS ───
+function toYMD(d) { const z = new Date(d.getTime() - d.getTimezoneOffset() * 60000); return z.toISOString().slice(0, 10); }
+function dateParams() { const q = []; if (currentFrom) q.push('from=' + currentFrom); if (currentTo) q.push('to=' + currentTo); return q; }
+function rangeInfo() {
+  if (!currentFrom && !currentTo) return { days: null };
+  const from = currentFrom ? new Date(currentFrom) : null;
+  const to = currentTo ? new Date(currentTo) : new Date();
+  const days = from ? Math.max(1, Math.round((to - from) / 86400000) + 1) : null;
+  return { days };
+}
+function rangeFactor() { const { days } = rangeInfo(); return days == null ? 1 : Math.min(Math.max(days / 90, 0.04), 1); }
+function applyRangeToEAs(list) {
+  const f = rangeFactor(); if (f >= 1) return list;
+  return list.map((e) => ({ ...e, total_pnl: +(e.total_pnl * f).toFixed(2), total_trades: Math.max(1, Math.round(e.total_trades * f)), wins: Math.round(e.wins * f), losses: Math.round(e.losses * f) }));
+}
 
 // ─── FORMATTERS ───
 const formatUSD = (num) => {
@@ -52,7 +70,7 @@ const MOCK_ACCOUNTS = [
   { account_number: '9918234', account_name: 'Nova Grid', broker: 'Tickmill', balance: 27400, equity: 26980, today_profit: -420, open_count: 4, floating_pnl: -420 },
 ];
 function mockOverview() {
-  const eas = filterEAs(MOCK_EAS);
+  const eas = filterEAs(applyRangeToEAs(MOCK_EAS));
   const accs = filterAccounts(MOCK_ACCOUNTS);
   const wins = eas.reduce((a, e) => a + e.wins, 0), losses = eas.reduce((a, e) => a + e.losses, 0);
   const trades = wins + losses || 1;
@@ -70,7 +88,7 @@ function mockOverview() {
     profit_factor: '2.14', total_trades: trades, wins, losses,
   };
 }
-function mockCurve() {
+function buildFullCurve() {
   const pts = []; const days = 90; const target = MOCK_EAS.reduce((a, e) => a + e.total_pnl, 0);
   let cum = 0, seed = 42; const rand = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
   const now = Date.now();
@@ -81,6 +99,22 @@ function mockCurve() {
   }
   pts[pts.length - 1].cumulative_profit = Math.round(target);
   return pts;
+}
+function mockCurve() {
+  const full = buildFullCurve();
+  const info = rangeInfo();
+  if (info.days == null) return full;
+  let pts;
+  if (currentFrom) {
+    const fromT = new Date(currentFrom).getTime();
+    const toT = (currentTo ? new Date(currentTo).getTime() : Date.now()) + 86400000;
+    pts = full.filter((p) => p.time >= fromT && p.time <= toT);
+  } else {
+    pts = full.slice(-info.days);
+  }
+  if (pts.length < 2) pts = full.slice(-2);
+  const base = pts[0].cumulative_profit;
+  return pts.map((p) => ({ time: p.time, cumulative_profit: p.cumulative_profit - base }));
 }
 function mockCalendar(year, month) {
   const dim = new Date(year, month, 0).getDate(); const days = []; let total = 0;
@@ -200,6 +234,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   typeHeadline('Center');
   $('accountFilter').addEventListener('change', (e) => { currentAccount = e.target.value; refreshDashboard(); });
   $('magicFilter').addEventListener('change', (e) => { currentMagic = e.target.value; refreshDashboard(); });
+  initRangeFilter();
 
   await refreshDashboard(false, true);
 
@@ -207,6 +242,29 @@ document.addEventListener('DOMContentLoaded', async () => {
   setTimeout(() => $('loader').classList.add('hidden'), 1700);
   setInterval(() => refreshDashboard(), 5000);
 });
+
+function initRangeFilter() {
+  const sel = $('rangeFilter'); const custom = $('customRange');
+  sel.addEventListener('change', (e) => {
+    const v = e.target.value; const today = new Date();
+    if (v === 'custom') {
+      custom.classList.remove('hidden'); custom.classList.add('flex');
+      $('toDate').value = toYMD(today);
+      const f = new Date(today); f.setDate(f.getDate() - 30); $('fromDate').value = toYMD(f);
+      return;
+    }
+    custom.classList.add('hidden'); custom.classList.remove('flex');
+    if (v === 'all') { currentFrom = null; currentTo = null; }
+    else if (v === '7d') { const f = new Date(today); f.setDate(f.getDate() - 6); currentFrom = toYMD(f); currentTo = toYMD(today); }
+    else if (v === '30d') { const f = new Date(today); f.setDate(f.getDate() - 29); currentFrom = toYMD(f); currentTo = toYMD(today); }
+    refreshDashboard();
+  });
+  $('applyRange').addEventListener('click', () => {
+    currentFrom = $('fromDate').value || null;
+    currentTo = $('toDate').value || null;
+    refreshDashboard();
+  });
+}
 
 let firstLoad = true;
 async function refreshDashboard(spin = false, initial = false) {
@@ -220,7 +278,8 @@ async function refreshDashboard(spin = false, initial = false) {
 
 // 1. OVERVIEW
 async function fetchOverview() {
-  const d = await api(`/overview?account=${currentAccount}&magic=${currentMagic}`) || mockOverview();
+  const dp = dateParams();
+  const d = await api(`/overview?account=${currentAccount}&magic=${currentMagic}${dp.length ? '&' + dp.join('&') : ''}`) || mockOverview();
   const set = (id, t) => { const e = $(id); if (e) e.textContent = t; };
   if (firstLoad) {
     animateValue($('totalBalance'), d.total_balance, { decimals: 2, prefix: '$' });
@@ -280,12 +339,13 @@ async function fetchAccountsList() {
 
 // 3. EA LIST (+ filter dropdown + bar chart)
 async function fetchEAList() {
-  const d = await api('/eas');
-  const all = d ? d.eas : MOCK_EAS;
+  const dp = dateParams();
+  const d = await api('/eas' + (dp.length ? '?' + dp.join('&') : ''));
+  const all = d ? d.eas : applyRangeToEAs(MOCK_EAS);
   const sel = $('magicFilter'); const cur = sel.value;
   sel.innerHTML = '<option value="all">All EAs</option>';
   all.forEach((e) => { const o = document.createElement('option'); o.value = e.magic_number; o.textContent = `${e.ea_name} (${e.magic_number})`; if (String(o.value) === cur) o.selected = true; sel.appendChild(o); });
-  updateHero('heroEAs', all.length);
+  updateHero('heroEAs', filterEAs(all).length);
   renderBars(filterEAs(all));
 }
 
@@ -310,7 +370,8 @@ function renderDonut(wins, losses) {
 
 // 4. EQUITY CURVE (custom SVG)
 async function fetchEquity() {
-  const d = await api(`/charts/equity-curve?account=${currentAccount}&magic=${currentMagic}`);
+  const dp = dateParams();
+  const d = await api(`/charts/equity-curve?account=${currentAccount}&magic=${currentMagic}${dp.length ? '&' + dp.join('&') : ''}`);
   const curve = d ? d.curve : mockCurve();
   renderEquity(curve);
 }
@@ -405,8 +466,9 @@ async function fetchPositions() {
 
 // 7. LEADERBOARD
 async function fetchLeaderboard() {
-  const d = await api('/eas');
-  const eas = filterEAs(d ? d.eas : MOCK_EAS);
+  const dp = dateParams();
+  const d = await api('/eas' + (dp.length ? '?' + dp.join('&') : ''));
+  const eas = filterEAs(d ? d.eas : applyRangeToEAs(MOCK_EAS));
   const tb = $('eaLeaderboardBody');
   if (!eas.length) { tb.innerHTML = '<tr><td colspan="8" class="text-center py-8 text-slate-600">No EA data available yet</td></tr>'; return; }
   const sorted = [...eas].sort((a, b) => b.total_pnl - a.total_pnl); const medal = ['🥇', '🥈', '🥉'];
