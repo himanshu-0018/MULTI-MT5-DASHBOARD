@@ -7,8 +7,16 @@
 
 let currentAccount = 'all';
 let currentMagic = 'all';
-let currentFrom = null;   // 'YYYY-MM-DD' or null (= all time)
-let currentTo = null;     // 'YYYY-MM-DD' or null
+
+// Initialize default range as Current Month (from 1st of month to today)
+const todayInit = new Date();
+const initYear = todayInit.getFullYear();
+const initMonth = String(todayInit.getMonth() + 1).padStart(2, '0');
+const initDay = String(todayInit.getDate()).padStart(2, '0');
+
+let currentFrom = `${initYear}-${initMonth}-01`;   // 'YYYY-MM-01'
+let currentTo = `${initYear}-${initMonth}-${initDay}`;     // 'YYYY-MM-DD' (Today)
+
 let calendarDate = new Date();
 let usingMock = false;
 
@@ -255,6 +263,11 @@ function initRangeFilter() {
     }
     custom.classList.add('hidden'); custom.classList.remove('flex');
     if (v === 'all') { currentFrom = null; currentTo = null; }
+    else if (v === 'current_month') {
+      const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+      currentFrom = toYMD(firstDay);
+      currentTo = toYMD(today);
+    }
     else if (v === '7d') { const f = new Date(today); f.setDate(f.getDate() - 6); currentFrom = toYMD(f); currentTo = toYMD(today); }
     else if (v === '30d') { const f = new Date(today); f.setDate(f.getDate() - 29); currentFrom = toYMD(f); currentTo = toYMD(today); }
     refreshDashboard();
