@@ -15,11 +15,15 @@ db.pragma('journal_mode = WAL');
 
 // Helper to safely add missing columns without crashing or needing manual SQL
 function ensureColumn(tableName, columnName, columnDefinition) {
-    const columns = db.prepare(`PRAGMA table_info(${tableName})`).all();
-    const exists = columns.some(c => c.name === columnName);
-    if (!exists) {
-        db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
-        console.log(`🔧 Auto-migrated: Added ${columnName} to ${tableName}`);
+    try {
+        const columns = db.prepare(`PRAGMA table_info(${tableName})`).all();
+        const exists = columns.some(c => c.name === columnName);
+        if (!exists) {
+            db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
+            console.log(`🔧 Auto-migrated: Added ${columnName} to ${tableName}`);
+        }
+    } catch (err) {
+        console.warn(`Migration check warning for ${tableName}.${columnName}:`, err.message);
     }
 }
 
@@ -122,10 +126,10 @@ function initDB() {
         )
     `);
 
-    // Ensure updated_at column exists in ea_registry if database existed previously
-    ensureColumn('ea_registry', 'updated_at', "TEXT DEFAULT (datetime('now'))");
+    // Ensure updated_at column exists in ea_registry with a constant default
+    ensureColumn('ea_registry', 'updated_at', 'TEXT DEFAULT NULL');
 
-    // TABLE 6: PENDING ORDERS (NEW)
+    // TABLE 6: PENDING ORDERS
     db.exec(`
         CREATE TABLE IF NOT EXISTS pending_orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -147,7 +151,7 @@ function initDB() {
         )
     `);
 
-    // TABLE 7: PROFILES (NEW)
+    // TABLE 7: PROFILES
     db.exec(`
         CREATE TABLE IF NOT EXISTS profiles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -160,7 +164,7 @@ function initDB() {
         )
     `);
 
-    // TABLE 8: SHARE LINKS (NEW)
+    // TABLE 8: SHARE LINKS
     db.exec(`
         CREATE TABLE IF NOT EXISTS share_links (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
