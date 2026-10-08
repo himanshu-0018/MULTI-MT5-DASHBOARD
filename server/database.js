@@ -39,7 +39,6 @@ function initDB() {
     `);
 
     // TABLE 2: TRADES (closed trades)
-    // Every closed trade from every account
     db.exec(`
         CREATE TABLE IF NOT EXISTS trades (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -64,7 +63,6 @@ function initDB() {
     `);
 
     // TABLE 3: DAILY SNAPSHOTS
-    // One row per account per day → powers the CALENDAR
     db.exec(`
         CREATE TABLE IF NOT EXISTS daily_snapshots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,7 +80,6 @@ function initDB() {
     `);
 
     // TABLE 4: OPEN POSITIONS
-    // Live open trades → real-time floating P&L
     db.exec(`
         CREATE TABLE IF NOT EXISTS open_positions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,7 +102,7 @@ function initDB() {
 
     // TABLE 5: EA REGISTRY
     // Name your EAs by magic number
-    // e.g. magic 12345 = "Gold Scalper v2"
+    // Multiple magic numbers may share the SAME ea_name → merged in UI
     db.exec(`
         CREATE TABLE IF NOT EXISTS ea_registry (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -113,11 +110,66 @@ function initDB() {
             ea_name TEXT DEFAULT 'Unknown EA',
             description TEXT DEFAULT '',
             color TEXT DEFAULT '#3b82f6',
-            created_at TEXT DEFAULT (datetime('now'))
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
         )
     `);
 
-    // ─── INDEXES (makes queries fast) ───
+    // TABLE 6: PENDING ORDERS  (NEW)
+    // Live pending orders (buy/sell limit/stop) streamed from the EA
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS pending_orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_number TEXT NOT NULL,
+            ticket TEXT NOT NULL,
+            magic_number INTEGER DEFAULT 0,
+            symbol TEXT NOT NULL,
+            order_type TEXT NOT NULL,            -- BUY_LIMIT / SELL_LIMIT / BUY_STOP / SELL_STOP / BUY_STOP_LIMIT / SELL_STOP_LIMIT
+            volume REAL DEFAULT 0,
+            price_open REAL DEFAULT 0,           -- requested entry price
+            price_current REAL DEFAULT 0,        -- live market price
+            sl REAL DEFAULT 0,
+            tp REAL DEFAULT 0,
+            setup_time TEXT NOT NULL,            -- when the pending was placed
+            expiration TEXT DEFAULT '',          -- expiry (if any)
+            comment TEXT DEFAULT '',
+            last_update TEXT DEFAULT (datetime('now')),
+            UNIQUE(account_number, ticket)
+        )
+    `);
+
+    // TABLE 7: PROFILES  (NEW)
+    // A "profile" = a saved group of MT5 accounts you want to view together
+    // e.g. "Main" (5 accounts) / "Testing" (1 account) / "All" (everything)
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS profiles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL,
+            slug TEXT UNIQUE NOT NULL,          -- URL-safe identifier, e.g. "main", "testing"
+            account_numbers TEXT DEFAULT '',    -- CSV: "5017842,3390127,7781005"  (empty = ALL accounts)
+            is_default INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+        )
+    `);
+
+    // TABLE 8: SHARE LINKS  (NEW)
+    // Each row = one shareable public link scoped to a profile
+    // Enforced server-side: viewer cannot see other accounts even by URL hacking
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS share_links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            token TEXT UNIQUE NOT NULL,         -- random URL-safe token
+            profile_id INTEGER NOT NULL,
+            label TEXT DEFAULT '',              -- optional note e.g. "Shared with John"
+            from_date TEXT DEFAULT NULL,        -- YYYY-MM-DD → viewer only sees trades on/after this date
+            expires_at TEXT DEFAULT NULL,       -- optional expiry
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+        )
+    `);
+
+    // ─── INDEXES ───
     db.exec(`
         CREATE INDEX IF NOT EXISTS idx_trades_account ON trades(account_number);
         CREATE INDEX IF NOT EXISTS idx_trades_magic ON trades(magic_number);
@@ -125,9 +177,24 @@ function initDB() {
         CREATE INDEX IF NOT EXISTS idx_trades_combo ON trades(account_number, magic_number);
         CREATE INDEX IF NOT EXISTS idx_snapshots_date ON daily_snapshots(account_number, snapshot_date);
         CREATE INDEX IF NOT EXISTS idx_open_account ON open_positions(account_number);
+        CREATE INDEX IF NOT EXISTS idx_pending_account ON pending_orders(account_number);
+        CREATE INDEX IF NOT EXISTS idx_pending_magic ON pending_orders(magic_number);
+        CREATE INDEX IF NOT EXISTS idx_sharelinks_token ON share_links(token);
+        CREATE INDEX IF NOT EXISTS idx_profiles_slug ON profiles(slug);
     `);
 
-    console.log('✅ Database initialized with 5 tables');
+    // ─── SEED DEFAULT "ALL" PROFILE ON FIRST RUN ───
+    // So the UI always has at least one profile to select
+    const existing = db.prepare('SELECT COUNT(*) AS c FROM profiles').get();
+    if (existing.c === 0) {
+        db.prepare(`
+            INSERT INTO profiles (name, slug, account_numbers, is_default)
+            VALUES (?, ?, ?, ?)
+        `).run('All Accounts', 'all', '', 1);
+        console.log('🌱 Seeded default profile: "All Accounts"');
+    }
+
+    console.log('✅ Database initialized with 8 tables');
 }
 
 initDB();
