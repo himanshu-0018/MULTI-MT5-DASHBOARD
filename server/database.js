@@ -12,7 +12,7 @@ if (!fs.existsSync(dataDir)) {
 const dbPath = path.join(dataDir, 'mt5dashboard.db');
 const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
-
+g
 // ─── CREATE ALL TABLES ───
 function initDB() {
 
