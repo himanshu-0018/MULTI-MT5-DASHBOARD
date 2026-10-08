@@ -13,11 +13,20 @@ const dbPath = path.join(dataDir, 'mt5dashboard.db');
 const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
 
+// Helper to safely add missing columns without crashing or needing manual SQL
+function ensureColumn(tableName, columnName, columnDefinition) {
+    const columns = db.prepare(`PRAGMA table_info(${tableName})`).all();
+    const exists = columns.some(c => c.name === columnName);
+    if (!exists) {
+        db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
+        console.log(`🔧 Auto-migrated: Added ${columnName} to ${tableName}`);
+    }
+}
+
 // ─── CREATE ALL TABLES ───
 function initDB() {
 
     // TABLE 1: ACCOUNTS
-    // One row per MT5 account
     db.exec(`
         CREATE TABLE IF NOT EXISTS accounts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,8 +110,6 @@ function initDB() {
     `);
 
     // TABLE 5: EA REGISTRY
-    // Name your EAs by magic number
-    // Multiple magic numbers may share the SAME ea_name → merged in UI
     db.exec(`
         CREATE TABLE IF NOT EXISTS ea_registry (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -115,8 +122,10 @@ function initDB() {
         )
     `);
 
-    // TABLE 6: PENDING ORDERS  (NEW)
-    // Live pending orders (buy/sell limit/stop) streamed from the EA
+    // Ensure updated_at column exists in ea_registry if database existed previously
+    ensureColumn('ea_registry', 'updated_at', "TEXT DEFAULT (datetime('now'))");
+
+    // TABLE 6: PENDING ORDERS (NEW)
     db.exec(`
         CREATE TABLE IF NOT EXISTS pending_orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -124,46 +133,42 @@ function initDB() {
             ticket TEXT NOT NULL,
             magic_number INTEGER DEFAULT 0,
             symbol TEXT NOT NULL,
-            order_type TEXT NOT NULL,            -- BUY_LIMIT / SELL_LIMIT / BUY_STOP / SELL_STOP / BUY_STOP_LIMIT / SELL_STOP_LIMIT
+            order_type TEXT NOT NULL,
             volume REAL DEFAULT 0,
-            price_open REAL DEFAULT 0,           -- requested entry price
-            price_current REAL DEFAULT 0,        -- live market price
+            price_open REAL DEFAULT 0,
+            price_current REAL DEFAULT 0,
             sl REAL DEFAULT 0,
             tp REAL DEFAULT 0,
-            setup_time TEXT NOT NULL,            -- when the pending was placed
-            expiration TEXT DEFAULT '',          -- expiry (if any)
+            setup_time TEXT NOT NULL,
+            expiration TEXT DEFAULT '',
             comment TEXT DEFAULT '',
             last_update TEXT DEFAULT (datetime('now')),
             UNIQUE(account_number, ticket)
         )
     `);
 
-    // TABLE 7: PROFILES  (NEW)
-    // A "profile" = a saved group of MT5 accounts you want to view together
-    // e.g. "Main" (5 accounts) / "Testing" (1 account) / "All" (everything)
+    // TABLE 7: PROFILES (NEW)
     db.exec(`
         CREATE TABLE IF NOT EXISTS profiles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL,
-            slug TEXT UNIQUE NOT NULL,          -- URL-safe identifier, e.g. "main", "testing"
-            account_numbers TEXT DEFAULT '',    -- CSV: "5017842,3390127,7781005"  (empty = ALL accounts)
+            slug TEXT UNIQUE NOT NULL,
+            account_numbers TEXT DEFAULT '',
             is_default INTEGER DEFAULT 0,
             created_at TEXT DEFAULT (datetime('now')),
             updated_at TEXT DEFAULT (datetime('now'))
         )
     `);
 
-    // TABLE 8: SHARE LINKS  (NEW)
-    // Each row = one shareable public link scoped to a profile
-    // Enforced server-side: viewer cannot see other accounts even by URL hacking
+    // TABLE 8: SHARE LINKS (NEW)
     db.exec(`
         CREATE TABLE IF NOT EXISTS share_links (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            token TEXT UNIQUE NOT NULL,         -- random URL-safe token
+            token TEXT UNIQUE NOT NULL,
             profile_id INTEGER NOT NULL,
-            label TEXT DEFAULT '',              -- optional note e.g. "Shared with John"
-            from_date TEXT DEFAULT NULL,        -- YYYY-MM-DD → viewer only sees trades on/after this date
-            expires_at TEXT DEFAULT NULL,       -- optional expiry
+            label TEXT DEFAULT '',
+            from_date TEXT DEFAULT NULL,
+            expires_at TEXT DEFAULT NULL,
             created_at TEXT DEFAULT (datetime('now')),
             FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
         )
@@ -183,8 +188,7 @@ function initDB() {
         CREATE INDEX IF NOT EXISTS idx_profiles_slug ON profiles(slug);
     `);
 
-    // ─── SEED DEFAULT "ALL" PROFILE ON FIRST RUN ───
-    // So the UI always has at least one profile to select
+    // ─── SEED DEFAULT "All Accounts" PROFILE ON FIRST RUN ───
     const existing = db.prepare('SELECT COUNT(*) AS c FROM profiles').get();
     if (existing.c === 0) {
         db.prepare(`
