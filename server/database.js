@@ -15,8 +15,62 @@ const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
+// ─── MIGRATE OLD/INCOMPATIBLE TABLES (e.g. a previous version's `profiles` with a `slug` column) ───
+const EXPECTED = {
+    pending_orders: ['id', 'account_number', 'ticket', 'magic_number', 'symbol', 'order_type', 'volume', 'price_open', 'price_current', 'sl', 'tp', 'setup_time', 'expiration', 'comment', 'last_update'],
+    known_accounts: ['account_number', 'account_name', 'broker', 'last_seen'],
+    profiles: ['id', 'name', 'created_at'],
+    profile_accounts: ['profile_id', 'account_number'],
+    share_links: ['id', 'token', 'profile_id', 'from_date', 'label', 'revoked', 'created_at', 'last_accessed']
+};
+
+function isCompatible(table) {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+    if (!cols.length) return true;
+    const names = cols.map((c) => c.name);
+    const missing = EXPECTED[table].some((c) => !names.includes(c));
+    const blocking = cols.some((c) => !EXPECTED[table].includes(c.name) && c.notnull && c.dflt_value === null && !c.pk);
+    return !missing && !blocking;
+}
+
+// Renames incompatible tables to <table>_legacy so fresh ones can be created
+function renameIncompatible() {
+    const renamed = [];
+    db.pragma('foreign_keys = OFF');
+    db.pragma('legacy_alter_table = ON'); // keep other tables' REFERENCES pointing at the new table
+    for (const table of Object.keys(EXPECTED)) {
+        if (isCompatible(table)) continue;
+        const legacy = `${table}_legacy_${Date.now()}`;
+        db.exec(`ALTER TABLE ${table} RENAME TO ${legacy}`);
+        db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL").all(legacy)
+            .forEach((i) => db.exec(`DROP INDEX IF EXISTS "${i.name}"`));
+        console.log(`🔧 Migrating old "${table}" table (kept as ${legacy})`);
+        renamed.push({ table, legacy });
+    }
+    db.pragma('legacy_alter_table = OFF');
+    return renamed;
+}
+
+// Copies whatever compatible data exists from the legacy tables into the new ones
+function copyLegacy(renamed) {
+    for (const { table, legacy } of renamed) {
+        const legacyCols = db.prepare(`PRAGMA table_info(${legacy})`).all().map((c) => c.name);
+        const target = EXPECTED[table].filter((c) => legacyCols.includes(c));
+        const source = [...target];
+        if (table === 'profiles' && !legacyCols.includes('name') && legacyCols.includes('slug')) { target.push('name'); source.push('slug'); }
+        if (!target.length) continue;
+        try {
+            db.exec(`INSERT OR IGNORE INTO ${table} (${target.join(', ')}) SELECT ${source.join(', ')} FROM ${legacy}`);
+        } catch (err) {
+            console.warn(`⚠️  Could not copy old ${table} rows: ${err.message}`);
+        }
+    }
+    db.pragma('foreign_keys = ON');
+}
+
 // ─── CREATE ALL TABLES ───
 function initDB() {
+    const renamed = renameIncompatible();
 
     // TABLE 1: ACCOUNTS (live terminals)
     db.exec(`
@@ -185,6 +239,7 @@ function initDB() {
         CREATE INDEX IF NOT EXISTS idx_registry_name ON ea_registry(ea_name);
     `);
 
+    copyLegacy(renamed);
     console.log('✅ Database initialized');
 }
 
