@@ -13,18 +13,10 @@ const dbPath = path.join(dataDir, 'mt5dashboard.db');
 const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
 
-// Helper to safely add missing columns without crashing or needing manual SQL
-function ensureColumn(tableName, columnName, columnDefinition) {
-    try {
-        const columns = db.prepare(`PRAGMA table_info(${tableName})`).all();
-        const exists = columns.some(c => c.name === columnName);
-        if (!exists) {
-            db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
-            console.log(`🔧 Auto-migrated: Added ${columnName} to ${tableName}`);
-        }
-    } catch (err) {
-        console.warn(`Migration check warning for ${tableName}.${columnName}:`, err.message);
-    }
+// ─── HELPER: Check if column exists ───
+function columnExists(table, column) {
+    const rows = db.prepare(`PRAGMA table_info(${table})`).all();
+    return rows.some(r => r.name === column);
 }
 
 // ─── CREATE ALL TABLES ───
@@ -45,13 +37,19 @@ function initDB() {
             margin REAL DEFAULT 0,
             free_margin REAL DEFAULT 0,
             margin_level REAL DEFAULT 0,
+            profile_id INTEGER DEFAULT 1,
             is_active INTEGER DEFAULT 1,
             first_seen TEXT DEFAULT (datetime('now')),
             last_update TEXT DEFAULT (datetime('now'))
         )
     `);
 
-    // TABLE 2: TRADES (closed trades)
+    // Migration: add profile_id if upgrading existing DB
+    if (!columnExists('accounts', 'profile_id')) {
+        db.exec(`ALTER TABLE accounts ADD COLUMN profile_id INTEGER DEFAULT 1`);
+    }
+
+    // TABLE 2: TRADES
     db.exec(`
         CREATE TABLE IF NOT EXISTS trades (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -121,15 +119,12 @@ function initDB() {
             ea_name TEXT DEFAULT 'Unknown EA',
             description TEXT DEFAULT '',
             color TEXT DEFAULT '#3b82f6',
-            created_at TEXT DEFAULT (datetime('now')),
-            updated_at TEXT DEFAULT (datetime('now'))
+            created_at TEXT DEFAULT (datetime('now'))
         )
     `);
 
-    // Ensure updated_at column exists in ea_registry with a constant default
-    ensureColumn('ea_registry', 'updated_at', 'TEXT DEFAULT NULL');
-
-    // TABLE 6: PENDING ORDERS
+    // TABLE 6: PENDING ORDERS (NEW)
+    // Live pending orders (limit/stop orders waiting to trigger)
     db.exec(`
         CREATE TABLE IF NOT EXISTS pending_orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -151,32 +146,68 @@ function initDB() {
         )
     `);
 
-    // TABLE 7: PROFILES
+    // TABLE 7: PROFILES (NEW)
+    // Groups accounts into logical profiles (e.g. "Main", "Testing", "Prop Firm")
     db.exec(`
         CREATE TABLE IF NOT EXISTS profiles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL,
-            slug TEXT UNIQUE NOT NULL,
-            account_numbers TEXT DEFAULT '',
+            description TEXT DEFAULT '',
+            color TEXT DEFAULT '#22d3ee',
+            icon TEXT DEFAULT 'briefcase',
             is_default INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now'))
+        )
+    `);
+
+    // Seed default profiles if empty
+    const profileCount = db.prepare('SELECT COUNT(*) as c FROM profiles').get().c;
+    if (profileCount === 0) {
+        db.prepare(`
+            INSERT INTO profiles (id, name, description, color, icon, is_default)
+            VALUES (1, 'Main', 'Main trading accounts', '#22d3ee', 'briefcase', 1)
+        `).run();
+        db.prepare(`
+            INSERT INTO profiles (name, description, color, icon)
+            VALUES ('Testing', 'Testing & experimental accounts', '#fbbf24', 'flask-conical')
+        `).run();
+    }
+
+    // TABLE 8: SHARE TOKENS (NEW)
+    // Secure tokens for sharing read-only dashboard views
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS share_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            token TEXT UNIQUE NOT NULL,
+            profile_id INTEGER,
+            account_number TEXT,
+            from_date TEXT DEFAULT NULL,
+            label TEXT DEFAULT '',
+            is_active INTEGER DEFAULT 1,
+            view_count INTEGER DEFAULT 0,
             created_at TEXT DEFAULT (datetime('now')),
+            last_viewed TEXT DEFAULT NULL
+        )
+    `);
+
+    // TABLE 9: SETTINGS (NEW)
+    // Stores master passcode (hashed) and app-level settings
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
             updated_at TEXT DEFAULT (datetime('now'))
         )
     `);
 
-    // TABLE 8: SHARE LINKS
-    db.exec(`
-        CREATE TABLE IF NOT EXISTS share_links (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            token TEXT UNIQUE NOT NULL,
-            profile_id INTEGER NOT NULL,
-            label TEXT DEFAULT '',
-            from_date TEXT DEFAULT NULL,
-            expires_at TEXT DEFAULT NULL,
-            created_at TEXT DEFAULT (datetime('now')),
-            FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
-        )
-    `);
+    // Seed default passcode if none exists (default: "1234" — change on first login)
+    const passExists = db.prepare('SELECT value FROM settings WHERE key = ?').get('master_passcode');
+    if (!passExists) {
+        const crypto = require('crypto');
+        const defaultHash = crypto.createHash('sha256').update('1234').digest('hex');
+        db.prepare(`INSERT INTO settings (key, value) VALUES (?, ?)`).run('master_passcode', defaultHash);
+        console.log('🔐 Default master passcode set to: 1234 (change it in settings!)');
+    }
 
     // ─── INDEXES ───
     db.exec(`
@@ -187,22 +218,11 @@ function initDB() {
         CREATE INDEX IF NOT EXISTS idx_snapshots_date ON daily_snapshots(account_number, snapshot_date);
         CREATE INDEX IF NOT EXISTS idx_open_account ON open_positions(account_number);
         CREATE INDEX IF NOT EXISTS idx_pending_account ON pending_orders(account_number);
-        CREATE INDEX IF NOT EXISTS idx_pending_magic ON pending_orders(magic_number);
-        CREATE INDEX IF NOT EXISTS idx_sharelinks_token ON share_links(token);
-        CREATE INDEX IF NOT EXISTS idx_profiles_slug ON profiles(slug);
+        CREATE INDEX IF NOT EXISTS idx_accounts_profile ON accounts(profile_id);
+        CREATE INDEX IF NOT EXISTS idx_tokens_token ON share_tokens(token);
     `);
 
-    // ─── SEED DEFAULT "All Accounts" PROFILE ON FIRST RUN ───
-    const existing = db.prepare('SELECT COUNT(*) AS c FROM profiles').get();
-    if (existing.c === 0) {
-        db.prepare(`
-            INSERT INTO profiles (name, slug, account_numbers, is_default)
-            VALUES (?, ?, ?, ?)
-        `).run('All Accounts', 'all', '', 1);
-        console.log('🌱 Seeded default profile: "All Accounts"');
-    }
-
-    console.log('✅ Database initialized with 8 tables');
+    console.log('✅ Database initialized with 9 tables (profiles + share tokens + pending orders)');
 }
 
 initDB();
