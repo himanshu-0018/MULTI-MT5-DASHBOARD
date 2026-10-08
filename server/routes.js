@@ -239,6 +239,13 @@ router.get('/overview', (req, res) => {
             tradeParams.push(magic);
         }
 
+        // Date range (from/to) — scopes historical aggregates + curve, NOT today/month
+        const { from, to } = req.query;
+        let rangeWhere = tradeWhere;
+        let rangeParams = [...tradeParams];
+        if (from) { rangeWhere += " AND substr(REPLACE(close_time, '.', '-'), 1, 10) >= ?"; rangeParams.push(from); }
+        if (to)   { rangeWhere += " AND substr(REPLACE(close_time, '.', '-'), 1, 10) <= ?"; rangeParams.push(to); }
+
         const totalAccounts = db.prepare('SELECT COUNT(*) as count FROM accounts WHERE is_active = 1').get().count;
         
         let accountTotalsQuery = 'SELECT SUM(balance) as total_balance, SUM(equity) as total_equity FROM accounts WHERE is_active = 1';
@@ -277,7 +284,7 @@ router.get('/overview', (req, res) => {
             ${tradeWhere} AND substr(REPLACE(close_time, '.', '-'), 1, 7) = ?
         `).get(...tradeParams, currentMonthStr);
 
-        // Overall Stats
+        // Overall Stats (scoped to the selected date range)
         const overallTrades = db.prepare(`
             SELECT 
                 COUNT(*) as total_trades,
@@ -287,8 +294,8 @@ router.get('/overview', (req, res) => {
                 COALESCE(SUM(CASE WHEN net_profit > 0 THEN net_profit ELSE 0 END), 0) as gross_profit,
                 COALESCE(ABS(SUM(CASE WHEN net_profit < 0 THEN net_profit ELSE 0 END)), 0) as gross_loss
             FROM trades
-            ${tradeWhere}
-        `).get(...tradeParams);
+            ${rangeWhere}
+        `).get(...rangeParams);
 
         const winRate = overallTrades.total_trades > 0 
             ? ((overallTrades.wins / overallTrades.total_trades) * 100).toFixed(1) 
@@ -344,6 +351,13 @@ router.get('/accounts', (req, res) => {
 
 router.get('/eas', (req, res) => {
     try {
+        // Date range (from/to) — scopes the leaderboard + bar chart to closed trades in the window
+        const { from, to } = req.query;
+        let where = 'WHERE 1=1';
+        const params = [];
+        if (from) { where += " AND substr(REPLACE(t.close_time, '.', '-'), 1, 10) >= ?"; params.push(from); }
+        if (to)   { where += " AND substr(REPLACE(t.close_time, '.', '-'), 1, 10) <= ?"; params.push(to); }
+
         const eas = db.prepare(`
             SELECT 
                 t.magic_number,
@@ -357,9 +371,10 @@ router.get('/eas', (req, res) => {
                 COALESCE((SELECT SUM(profit + swap) FROM open_positions WHERE magic_number = t.magic_number), 0) as open_pnl
             FROM trades t
             LEFT JOIN ea_registry r ON t.magic_number = r.magic_number
+            ${where}
             GROUP BY t.magic_number
             ORDER BY total_pnl DESC
-        `).all();
+        `).all(...params);
 
         res.json({ success: true, eas });
     } catch (err) {
@@ -438,6 +453,11 @@ router.get('/charts/equity-curve', (req, res) => {
             where += ' AND magic_number = ?';
             params.push(magic);
         }
+
+        // Date range (from/to) — scopes the growth curve to closed trades in the window
+        const { from, to } = req.query;
+        if (from) { where += " AND substr(REPLACE(close_time, '.', '-'), 1, 10) >= ?"; params.push(from); }
+        if (to)   { where += " AND substr(REPLACE(close_time, '.', '-'), 1, 10) <= ?"; params.push(to); }
 
         const trades = db.prepare(`
             SELECT 
