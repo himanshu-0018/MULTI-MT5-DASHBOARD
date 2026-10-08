@@ -3,13 +3,14 @@ const router = express.Router();
 const crypto = require('crypto');
 const db = require('./database');
 
+const ADMIN_PIN = process.env.ADMIN_PIN || '8888';
+
 // ─── HELPERS ───
 function normalizeDate(dateStr) {
     if (!dateStr) return new Date().toISOString().replace('T', ' ').slice(0, 19);
     return dateStr.replace(/\./g, '-').trim();
 }
 
-// Generates a URL-safe slug from profile name
 function slugify(text) {
     return text.toString().toLowerCase().trim()
         .replace(/\s+/g, '-')
@@ -17,12 +18,7 @@ function slugify(text) {
         .replace(/\-\-+/g, '-');
 }
 
-// ─── QUERY SCOPING HELPERS (ENFORCES PROFILES & SHARE RESTRICTIONS) ───
-
-/**
- * Returns the list of account numbers the current request is allowed to see.
- * Enforced server-side: shared viewers cannot bypass this by tampering with query params.
- */
+// ─── QUERY SCOPING HELPERS ───
 function resolveAllowedAccounts(req) {
     // 1. Share scope active (highest priority — non-bypassable)
     if (req.shareScope) {
@@ -34,14 +30,13 @@ function resolveAllowedAccounts(req) {
             }
             return req.shareScope.allowedAccounts;
         }
-        // Empty CSV in profile means all accounts
         if (req.query.account && req.query.account !== 'all') {
             return [String(req.query.account)];
         }
-        return null; // null means all active accounts
+        return null;
     }
 
-    // 2. Profile filter (for master user)
+    // 2. Profile filter (Master Admin)
     if (req.query.profile && req.query.profile !== 'all') {
         const profile = db.prepare('SELECT account_numbers FROM profiles WHERE id = ? OR slug = ?').get(req.query.profile, req.query.profile);
         if (profile && profile.account_numbers) {
@@ -60,13 +55,9 @@ function resolveAllowedAccounts(req) {
         return [String(req.query.account)];
     }
 
-    return null; // null means no account restriction (all accounts)
+    return null;
 }
 
-/**
- * Resolves the effective "from" date.
- * If a share link has a from_date, the viewer CANNOT query any date earlier than that.
- */
 function resolveEffectiveFromDate(req) {
     const clientFrom = req.query.from || null;
     const shareFrom = req.shareScope ? req.shareScope.fromDate : null;
@@ -77,14 +68,9 @@ function resolveEffectiveFromDate(req) {
     return shareFrom || clientFrom;
 }
 
-/**
- * Resolves magic numbers. If user filters by an EA name (or magic number),
- * this finds all magic numbers sharing that name so they are merged.
- */
 function resolveMagicNumbers(magicOrName) {
     if (!magicOrName || magicOrName === 'all') return null;
 
-    // Check if magicOrName matches an ea_name in ea_registry
     const byName = db.prepare(`
         SELECT magic_number FROM ea_registry 
         WHERE ea_name = ? OR CAST(magic_number AS TEXT) = ?
@@ -94,14 +80,10 @@ function resolveMagicNumbers(magicOrName) {
         return byName.map(r => r.magic_number);
     }
 
-    // Fallback: if numeric, treat as standalone magic number
     const num = Number(magicOrName);
     return isNaN(num) ? null : [num];
 }
 
-/**
- * Builds SQL WHERE conditions and params for accounts, magics, and date ranges
- */
 function buildFilterSQL(req, options = {}) {
     const {
         accountCol = 'account_number',
@@ -146,6 +128,25 @@ function buildFilterSQL(req, options = {}) {
 
     return { where, params };
 }
+
+// ==========================================
+// 🔐 0. AUTHENTICATION
+// ==========================================
+
+router.post('/auth/login', (req, res) => {
+    try {
+        const { pin } = req.body || {};
+        if (!pin) {
+            return res.status(400).json({ success: false, error: 'Passcode is required' });
+        }
+        if (String(pin).trim() === String(ADMIN_PIN).trim()) {
+            return res.json({ success: true, token: ADMIN_PIN });
+        }
+        return res.status(401).json({ success: false, error: 'Incorrect Master Passcode' });
+    } catch (err) {
+        return res.status(500).json({ success: false, error: err.message });
+    }
+});
 
 // ==========================================
 // 📥 1. DATA INGESTION (Called by MT5 EA)
@@ -234,7 +235,7 @@ router.post('/ea/sync', (req, res) => {
                 }
             }
 
-            // 3. Refresh Pending Orders (NEW)
+            // 3. Refresh Pending Orders
             db.prepare('DELETE FROM pending_orders WHERE account_number = ?').run(String(account.account_number));
             const insertPending = db.prepare(`
                 INSERT OR REPLACE INTO pending_orders (
@@ -393,7 +394,6 @@ setInterval(() => {
 // 🏷️ 2. EA REGISTRY (RENAME & MERGE BY NAME)
 // ==========================================
 
-// Get all registered EAs (both distinct magic numbers and merged EA name view)
 router.get('/ea-registry', (req, res) => {
     try {
         const rows = db.prepare(`
@@ -402,7 +402,6 @@ router.get('/ea-registry', (req, res) => {
             ORDER BY ea_name ASC, magic_number ASC
         `).all();
 
-        // Also fetch active magic numbers from trades + open_positions not yet in registry
         const activeMagics = db.prepare(`
             SELECT DISTINCT magic_number FROM trades WHERE magic_number > 0
             UNION
@@ -418,7 +417,6 @@ router.get('/ea-registry', (req, res) => {
             }
         }
 
-        // Build merged summary (multiple magic numbers with same name grouped)
         const mergedMap = {};
         rows.forEach(r => {
             const name = r.ea_name || `EA #${r.magic_number}`;
@@ -443,7 +441,6 @@ router.get('/ea-registry', (req, res) => {
     }
 });
 
-// Update EA name / color / description for one or more magic numbers
 router.post('/ea-registry/rename', (req, res) => {
     if (req.shareScope) return res.status(403).json({ success: false, error: 'Read-only link' });
 
@@ -489,10 +486,8 @@ router.post('/ea-registry/rename', (req, res) => {
 // 👤 3. PROFILES & SHARE LINKS
 // ==========================================
 
-// List all profiles
 router.get('/profiles', (req, res) => {
     try {
-        // If shared link, return only the scoped profile
         if (req.shareScope) {
             return res.json({
                 success: true,
@@ -514,7 +509,6 @@ router.get('/profiles', (req, res) => {
     }
 });
 
-// Create new profile
 router.post('/profiles', (req, res) => {
     if (req.shareScope) return res.status(403).json({ success: false, error: 'Read-only link' });
 
@@ -536,7 +530,6 @@ router.post('/profiles', (req, res) => {
     }
 });
 
-// Update profile
 router.put('/profiles/:id', (req, res) => {
     if (req.shareScope) return res.status(403).json({ success: false, error: 'Read-only link' });
 
@@ -566,7 +559,6 @@ router.put('/profiles/:id', (req, res) => {
     }
 });
 
-// Delete profile
 router.delete('/profiles/:id', (req, res) => {
     if (req.shareScope) return res.status(403).json({ success: false, error: 'Read-only link' });
 
@@ -583,7 +575,6 @@ router.delete('/profiles/:id', (req, res) => {
     }
 });
 
-// Create Share Link
 router.post('/share', (req, res) => {
     if (req.shareScope) return res.status(403).json({ success: false, error: 'Cannot generate share link from a shared view' });
 
@@ -619,7 +610,6 @@ router.post('/share', (req, res) => {
     }
 });
 
-// List all active share links
 router.get('/share/list', (req, res) => {
     if (req.shareScope) return res.status(403).json({ success: false, error: 'Unauthorized' });
 
@@ -637,7 +627,6 @@ router.get('/share/list', (req, res) => {
     }
 });
 
-// Delete / Revoke Share Link
 router.delete('/share/:token', (req, res) => {
     if (req.shareScope) return res.status(403).json({ success: false, error: 'Unauthorized' });
 
@@ -649,7 +638,6 @@ router.delete('/share/:token', (req, res) => {
     }
 });
 
-// Share info endpoint (Frontend checks if current session is shared)
 router.get('/share/info', (req, res) => {
     if (!req.shareScope) {
         return res.json({ success: true, is_shared: false });
@@ -668,7 +656,6 @@ router.get('/share/info', (req, res) => {
 // 📊 4. DASHBOARD DATA ENDPOINTS
 // ==========================================
 
-// OVERVIEW
 router.get('/overview', (req, res) => {
     try {
         const allowedAccounts = resolveAllowedAccounts(req);
@@ -714,7 +701,7 @@ router.get('/overview', (req, res) => {
             ${monthFilter.where} AND substr(REPLACE(close_time, '.', '-'), 1, 7) = ?
         `).get(...monthFilter.params, currentMonthStr);
 
-        // Overall Closed Stats (scoped to effective date range + profile)
+        // Overall Closed Stats
         const rangeFilter = buildFilterSQL(req, { includeDate: true });
         const overallTrades = db.prepare(`
             SELECT 
@@ -759,7 +746,6 @@ router.get('/overview', (req, res) => {
     }
 });
 
-// ACCOUNTS LIST
 router.get('/accounts', (req, res) => {
     try {
         const todayStr = new Date().toISOString().slice(0, 10);
@@ -791,7 +777,6 @@ router.get('/accounts', (req, res) => {
     }
 });
 
-// EAS (MERGED BY NAME)
 router.get('/eas', (req, res) => {
     try {
         const filter = buildFilterSQL(req, { accountCol: 't.account_number', magicCol: 't.magic_number', dateCol: 't.close_time', includeDate: true });
@@ -813,7 +798,6 @@ router.get('/eas', (req, res) => {
             ORDER BY total_pnl DESC
         `).all(...filter.params);
 
-        // Calculate floating PnL for each merged EA
         const allowedAccounts = resolveAllowedAccounts(req);
         let posWhere = 'WHERE 1=1';
         let posParams = [];
@@ -854,7 +838,6 @@ router.get('/eas', (req, res) => {
     }
 });
 
-// CALENDAR
 router.get('/calendar', (req, res) => {
     try {
         const now = new Date();
@@ -896,7 +879,6 @@ router.get('/calendar', (req, res) => {
     }
 });
 
-// EQUITY CURVE
 router.get('/charts/equity-curve', (req, res) => {
     try {
         const filter = buildFilterSQL(req, { includeDate: true });
@@ -929,7 +911,6 @@ router.get('/charts/equity-curve', (req, res) => {
     }
 });
 
-// OPEN POSITIONS
 router.get('/open-positions', (req, res) => {
     try {
         const filter = buildFilterSQL(req, { accountCol: 'op.account_number', magicCol: 'op.magic_number', includeDate: false });
@@ -950,7 +931,6 @@ router.get('/open-positions', (req, res) => {
     }
 });
 
-// PENDING ORDERS (NEW)
 router.get('/pending-orders', (req, res) => {
     try {
         const filter = buildFilterSQL(req, { accountCol: 'po.account_number', magicCol: 'po.magic_number', includeDate: false });
