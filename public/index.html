@@ -3,441 +3,568 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MT5 Multi-Account Command Center</title>
+  <title>QuantPulse | Multi-Account MT5 Executive Dashboard</title>
+  
+  <!-- Google Fonts & Font Awesome Icons -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  
+  <!-- ApexCharts CDN for Institutional Grade Visuals -->
+  <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 
-  <!-- Tailwind (utility classes) + icons + fonts -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/lucide@latest"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
-
-  <!-- Custom futuristic styles -->
-  <link rel="stylesheet" href="/css/style.css" />
+  <!-- Custom Stylesheet -->
+  <link rel="stylesheet" href="style.css" />
 </head>
-<body class="min-h-screen flex flex-col antialiased text-slate-100">
+<body class="dark-theme">
 
-  <!-- ═══ IMMERSIVE BACKGROUND ═══ -->
-  <div id="bg" class="fixed inset-0 -z-10 overflow-hidden" aria-hidden="true">
-    <div class="absolute inset-0 bg-[#05070f]"></div>
-    <div class="absolute inset-0" style="background: radial-gradient(1200px circle at 20% -10%, rgba(34,211,238,0.10), transparent 55%), radial-gradient(1000px circle at 100% 10%, rgba(168,85,247,0.10), transparent 50%);"></div>
-    <div class="absolute inset-0 grid-mask"></div>
-    <div class="orb orb-cyan"></div>
-    <div class="orb orb-violet"></div>
-    <div class="orb orb-emerald"></div>
-    <canvas id="stars" class="absolute inset-0"></canvas>
-    <div id="spotlight" class="absolute inset-0"></div>
-  </div>
-
-  <!-- ═══ LOADING SCREEN ═══ -->
-  <div id="loader" class="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-[#05070f] transition-opacity duration-700">
-    <div class="relative w-28 h-28">
-      <span class="absolute inset-0 rounded-2xl border border-cyan-400/30 loader-ring"></span>
-      <span class="absolute inset-2 rounded-2xl border border-violet-400/30 loader-ring-2"></span>
-      <div class="absolute inset-0 flex items-center justify-center">
-        <div class="w-16 h-16 rounded-2xl grad-cyan-violet flex items-center justify-center loader-pop" style="box-shadow:0 0 40px rgba(34,211,238,0.5)">
-          <i data-lucide="activity" class="w-9 h-9 text-white"></i>
+  <!-- ========================================== -->
+  <!-- 1. MASTER PASSCODE LOCK SCREEN OVERLAY     -->
+  <!-- ========================================== -->
+  <div id="lockScreen" class="lock-screen-overlay active">
+    <div class="lock-card">
+      <div class="lock-brand">
+        <div class="lock-icon-glow">
+          <i class="fa-solid fa-shield-halved"></i>
         </div>
+        <h2>QuantPulse Terminal</h2>
+        <p>Restricted Access Master Portfolio</p>
+      </div>
+
+      <form id="lockForm" class="lock-form" onsubmit="return false;">
+        <div class="pin-input-group">
+          <input type="password" id="pinInput" placeholder="Enter Master Passcode (PIN)" autocomplete="off" autofocus />
+          <button type="button" id="btnTogglePin" class="btn-icon-addon" title="Show/Hide PIN">
+            <i class="fa-regular fa-eye"></i>
+          </button>
+        </div>
+        <div id="lockErrorMsg" class="lock-error-msg hidden">
+          <i class="fa-solid fa-triangle-exclamation"></i>
+          <span id="lockErrorText">Invalid Passcode. Access Denied.</span>
+        </div>
+        <button type="submit" id="btnSubmitPin" class="btn-unlock">
+          <i class="fa-solid fa-lock-open"></i> Unlock Terminal
+        </button>
+      </form>
+      <div class="lock-footer">
+        <small><i class="fa-solid fa-server"></i> Multi-MT5 Institutional Vault v1.10</small>
       </div>
     </div>
-    <div class="mt-8 font-display text-sm uppercase tracking-[0.5em] text-slate-400 loader-text">MT5 Command Center</div>
-    <div class="mt-5 h-[3px] w-48 overflow-hidden rounded-full bg-slate-800"><div class="h-full grad-cyan-violet loader-bar"></div></div>
   </div>
 
-  <!-- ═══ SHARED VIEW BANNER (Visible only in shared mode) ═══ -->
-  <div id="sharedBanner" class="hidden bg-gradient-to-r from-cyan-950/90 via-slate-900/90 to-violet-950/90 border-b border-cyan-500/30 px-4 py-2 text-xs">
-    <div class="max-w-[1400px] mx-auto flex items-center justify-between">
-      <div class="flex items-center gap-2 text-cyan-300">
-        <i data-lucide="shield-check" class="w-4 h-4 text-cyan-400"></i>
-        <span>Viewing Shared Profile: <strong id="sharedProfileName" class="text-white font-semibold">—</strong></span>
-        <span id="sharedDateScope" class="text-slate-400 text-[11px] ml-2"></span>
-      </div>
-      <span class="text-[10px] font-mono text-cyan-400/80 uppercase tracking-widest bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-400/20">Read-Only View</span>
-    </div>
-  </div>
-
-  <!-- ═══ TOP NAV ═══ -->
-  <header class="sticky top-0 z-50 glass border-b border-white/5">
-    <div class="max-w-[1400px] mx-auto flex flex-col md:flex-row items-center justify-between gap-4 px-5 py-3.5">
-      <div class="flex items-center gap-3">
-        <div class="w-11 h-11 rounded-xl grad-cyan-violet flex items-center justify-center float-soft" style="box-shadow:0 0 25px rgba(34,211,238,0.35)">
-          <i data-lucide="activity" class="w-6 h-6 text-white"></i>
-        </div>
-        <div>
-          <h1 class="font-display text-lg font-bold tracking-tight text-gradient">MT5 Command Center</h1>
-          <div class="flex items-center gap-2 text-[11px] text-slate-400">
-            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" style="box-shadow:0 0 8px #34d399"></span>
-            <span>Cloud Sync Active</span><span class="text-slate-600">•</span>
-            <span id="lastUpdated" class="font-mono">Updating…</span>
+  <!-- ========================================== -->
+  <!-- 2. MAIN APPLICATION CONTAINER              -->
+  <!-- ========================================== -->
+  <div id="appContainer" class="app-layout">
+    
+    <!-- Top Navigation Header -->
+    <header class="top-navbar">
+      <div class="nav-left">
+        <div class="brand-container">
+          <i class="fa-solid fa-chart-line-up brand-logo-icon"></i>
+          <div>
+            <h1 class="brand-title">QuantPulse <span class="badge-pro">MULTI-MT5</span></h1>
+            <span class="brand-subtitle" id="activeProfileLabel">Profile: All Accounts</span>
           </div>
         </div>
+
+        <!-- Multi-Account Profile Selector -->
+        <div class="profile-dropdown-container">
+          <label for="profileSelect" class="input-label"><i class="fa-solid fa-layer-group"></i> Profile:</label>
+          <select id="profileSelect" class="custom-select">
+            <option value="ALL">🌐 All Active Accounts</option>
+          </select>
+        </div>
+
+        <!-- Account Filter Selector -->
+        <div class="account-filter-container">
+          <label for="accountFilter" class="input-label"><i class="fa-solid fa-wallet"></i> Account:</label>
+          <select id="accountFilter" class="custom-select">
+            <option value="ALL">All Profile Accounts</option>
+          </select>
+        </div>
       </div>
 
-      <!-- Filters & Controls -->
-      <div class="flex flex-wrap items-center gap-2.5">
+      <div class="nav-right">
+        <!-- Date Range Filter Selector -->
+        <div class="date-filter-group">
+          <button class="btn-filter-pill active" data-range="all">All Time</button>
+          <button class="btn-filter-pill" data-range="month">30 Days</button>
+          <button class="btn-filter-pill" data-range="week">7 Days</button>
+          <button class="btn-filter-pill" data-range="today">Today</button>
+          <button class="btn-filter-pill" id="btnCustomDate" title="Custom Date Range"><i class="fa-regular fa-calendar"></i></button>
+        </div>
 
-        <!-- Profile Selector (Hidden in shared view) -->
-        <div id="profileControlWrap" class="flex items-center gap-1.5">
-          <div class="select-wrap">
-            <i data-lucide="layout-grid" class="w-4 h-4 text-amber-400 sw-lead"></i>
-            <select id="profileFilter" title="Active Profile"><option value="all">Profile: All Accounts</option></select>
-            <i data-lucide="chevron-down" class="w-4 h-4 text-slate-400 caret"></i>
-          </div>
-          <button id="manageProfilesBtn" title="Manage Profiles" class="h-10 w-10 flex items-center justify-center rounded-lg bg-slate-900/70 border border-white/10 text-slate-300 hover:text-amber-400 hover:border-amber-400/40 transition">
-            <i data-lucide="sliders-horizontal" class="w-4 h-4"></i>
+        <!-- Master Action Buttons (Hidden in Share Mode) -->
+        <div class="admin-action-tools" id="adminActionTools">
+          <button id="btnOpenProfiles" class="btn-secondary" title="Manage Account Profiles">
+            <i class="fa-solid fa-folder-tree"></i> <span>Profiles</span>
+          </button>
+          <button id="btnOpenShare" class="btn-primary" title="Generate Shareable Links">
+            <i class="fa-solid fa-share-nodes"></i> <span>Share Dashboard</span>
+          </button>
+          <button id="btnLockTerminal" class="btn-danger-outline" title="Lock Terminal">
+            <i class="fa-solid fa-lock"></i>
           </button>
         </div>
 
-        <!-- Account Filter -->
-        <div class="select-wrap">
-          <i data-lucide="globe" class="w-4 h-4 text-cyan-400 sw-lead"></i>
-          <select id="accountFilter"><option value="all">All Accounts</option></select>
-          <i data-lucide="chevron-down" class="w-4 h-4 text-slate-400 caret"></i>
+        <!-- Share Mode Banner (Only displayed when accessing via share token) -->
+        <div class="share-badge-pill hidden" id="shareModeBadge">
+          <i class="fa-solid fa-eye"></i> <span>Shared Read-Only Access</span>
         </div>
 
-        <!-- EA Strategy Filter -->
-        <div class="select-wrap">
-          <i data-lucide="zap" class="w-4 h-4 text-violet-400 sw-lead"></i>
-          <select id="magicFilter"><option value="all">All EAs</option></select>
-          <i data-lucide="chevron-down" class="w-4 h-4 text-slate-400 caret"></i>
+        <!-- Live Server Status Indicator -->
+        <div class="connection-status-pill online" id="serverStatusBadge">
+          <span class="status-pulse-dot"></span>
+          <span id="serverStatusText">LIVE FEED</span>
         </div>
-
-        <!-- Date Range Filter -->
-        <div class="select-wrap">
-          <i data-lucide="calendar-clock" class="w-4 h-4 text-emerald-400 sw-lead"></i>
-          <select id="rangeFilter">
-            <option value="current_month" selected>Current Month</option>
-            <option value="all">All Time</option>
-            <option value="7d">Last 7 Days</option>
-            <option value="30d">Last 30 Days</option>
-            <option value="custom">Custom…</option>
-          </select>
-          <i data-lucide="chevron-down" class="w-4 h-4 text-slate-400 caret"></i>
-        </div>
-
-        <div id="customRange" class="hidden items-center gap-2">
-          <input type="date" id="fromDate" class="date-input" />
-          <span class="text-slate-500 text-xs">to</span>
-          <input type="date" id="toDate" class="date-input" />
-          <button id="applyRange" class="h-10 px-3 rounded-lg bg-cyan-500/15 border border-cyan-400/40 text-cyan-300 text-xs font-semibold hover:bg-cyan-500/25 transition">Apply</button>
-        </div>
-
-        <!-- Share Button (Hidden in shared view) -->
-        <button id="openShareModalBtn" title="Share Dashboard Link" class="h-10 px-3.5 flex items-center gap-2 rounded-lg bg-cyan-500/15 border border-cyan-400/30 text-cyan-300 hover:bg-cyan-500/25 transition text-xs font-semibold">
-          <i data-lucide="share-2" class="w-4 h-4"></i>
-          <span class="hidden sm:inline">Share</span>
-        </button>
-
-        <!-- Refresh Button -->
-        <button onclick="refreshDashboard(true)" title="Refresh" class="h-10 w-10 flex items-center justify-center rounded-lg bg-slate-900/70 border border-white/10 text-slate-300 hover:text-white hover:border-cyan-400/40 transition">
-          <i data-lucide="rotate-cw" class="w-4 h-4" id="refreshIcon"></i>
-        </button>
       </div>
-    </div>
-  </header>
+    </header>
 
-  <!-- ═══ MAIN ═══ -->
-  <main class="flex-1 w-full max-w-[1400px] mx-auto px-4 sm:px-6 py-8 space-y-8">
-
-    <!-- HERO -->
-    <section class="reveal relative text-center py-10 sm:py-14">
-      <span class="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.3em] text-cyan-300/80 border border-cyan-400/20 rounded-full px-4 py-1.5 bg-cyan-400/5">
-        <i data-lucide="cpu" class="w-3.5 h-3.5"></i> Real-time EA Telemetry
-      </span>
-      <h1 class="mt-6 font-display text-4xl sm:text-6xl font-extrabold tracking-tight">
-        <span class="text-gradient">Multi-Account</span><br />
-        <span class="text-white">Command <span id="typed"></span><span class="type-caret" id="typeCaret"></span></span>
-      </h1>
-      <p class="mt-5 max-w-xl mx-auto text-sm sm:text-base text-slate-400">Monitor every MT5 terminal, Expert Advisor, pending order, and open position across your entire trading fleet.</p>
-      <div class="mt-10 flex items-center justify-center gap-8 sm:gap-14 flex-wrap">
-        <div class="text-center"><div id="heroAccounts" class="text-2xl sm:text-3xl font-extrabold font-display text-cyan-400">0</div><div class="text-[10px] uppercase tracking-[0.25em] text-slate-500 mt-1">Accounts</div></div>
-        <div class="text-center"><div id="heroEAs" class="text-2xl sm:text-3xl font-extrabold font-display text-violet-400">0</div><div class="text-[10px] uppercase tracking-[0.25em] text-slate-500 mt-1">Active EAs</div></div>
-        <div class="text-center"><div id="heroProfit" class="text-2xl sm:text-3xl font-extrabold font-display text-emerald-400">$0</div><div class="text-[10px] uppercase tracking-[0.25em] text-slate-500 mt-1">Net Profit</div></div>
-        <div class="text-center"><div id="heroWin" class="text-2xl sm:text-3xl font-extrabold font-display text-amber-400">0%</div><div class="text-[10px] uppercase tracking-[0.25em] text-slate-500 mt-1">Win Rate</div></div>
-      </div>
-    </section>
-
-    <!-- KPI CARDS -->
-    <section class="reveal grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-      <div class="glass card-glow rounded-2xl p-5 relative overflow-hidden" style="--accent:#3b82f6">
-        <span class="orb-mini" style="background:#3b82f6"></span>
-        <div class="flex justify-between items-start mb-3"><span class="kpi-label">Balance &amp; Equity</span><span class="p-2 rounded-lg bg-blue-500/10 text-blue-400"><i data-lucide="wallet" class="w-4 h-4"></i></span></div>
-        <div class="text-2xl font-extrabold text-white tracking-tight font-display" id="totalBalance">$0.00</div>
-        <div class="flex items-center justify-between mt-2 text-xs text-slate-400"><span>Equity: <strong class="text-slate-200" id="totalEquity">$0.00</strong></span><span id="accountCountBadge" class="bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full font-mono text-[10px]">0 Accs</span></div>
-      </div>
-      <div class="glass card-glow rounded-2xl p-5 relative overflow-hidden" id="todayCard" style="--accent:#34d399">
-        <span class="orb-mini" id="todayOrb" style="background:#34d399"></span>
-        <div class="flex justify-between items-start mb-3"><span class="kpi-label">Today's P&amp;L</span><span class="p-2 rounded-lg bg-emerald-500/10 text-emerald-400" id="todayIconWrap"><i data-lucide="trending-up" class="w-4 h-4" id="todayIcon"></i></span></div>
-        <div class="text-2xl font-extrabold tracking-tight font-display text-emerald-400" id="todayPnl">$0.00</div>
-        <div class="mt-2 text-xs text-slate-400 flex items-center gap-1"><span>Floating:</span><span id="floatingPnl" class="font-semibold text-emerald-400">$0.00</span><span class="text-slate-500">(<span id="openCount">0</span> open)</span></div>
-      </div>
-      <div class="glass card-glow rounded-2xl p-5 relative overflow-hidden" style="--accent:#a855f7">
-        <span class="orb-mini" style="background:#a855f7"></span>
-        <div class="flex justify-between items-start mb-3"><span class="kpi-label">Month P&amp;L</span><span class="p-2 rounded-lg bg-violet-500/10 text-violet-400"><i data-lucide="calendar-range" class="w-4 h-4"></i></span></div>
-        <div class="text-2xl font-extrabold tracking-tight font-display text-emerald-400" id="monthPnl">$0.00</div>
-        <div class="mt-2 text-xs text-slate-400">Closed in Scope: <span id="totalClosedPnl" class="font-semibold text-slate-200">$0.00</span></div>
-      </div>
-      <div class="glass card-glow rounded-2xl p-5 relative overflow-hidden" style="--accent:#fbbf24">
-        <span class="orb-mini" style="background:#fbbf24"></span>
-        <div class="flex justify-between items-start mb-3"><span class="kpi-label">Performance</span><span class="p-2 rounded-lg bg-amber-500/10 text-amber-400"><i data-lucide="award" class="w-4 h-4"></i></span></div>
-        <div class="flex items-baseline gap-2"><span class="text-2xl font-extrabold text-white font-display" id="winRate">0%</span><span class="text-xs text-slate-400">Win Rate</span></div>
-        <div class="mt-2 text-xs text-slate-400 flex items-center justify-between"><span>PF: <strong class="text-slate-200" id="profitFactor">0.00</strong></span><span>Trades: <strong class="text-slate-200" id="totalTradesCount">0</strong></span></div>
-      </div>
-    </section>
-
-    <!-- EQUITY CURVE -->
-    <section class="reveal glass gradient-border rounded-2xl p-6">
-      <div class="flex items-start justify-between gap-3 mb-4">
-        <div><h2 class="text-base font-bold text-white flex items-center gap-2 font-display"><i data-lucide="trending-up" class="w-5 h-5 text-cyan-400"></i>Cumulative Growth Curve</h2><p class="text-xs text-slate-500 mt-0.5">Net profit trajectory • peak &amp; valley auto-marked</p></div>
-        <div class="hidden sm:flex items-center gap-3 text-xs text-slate-400"><span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span> Peak</span><span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-rose-400"></span> Valley</span><span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-cyan-400"></span> Current</span></div>
-      </div>
-      <div id="equityChart" class="relative w-full"></div>
-    </section>
-
-    <!-- EA BARS + DONUT -->
-    <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <div class="reveal glass rounded-2xl p-6 lg:col-span-2">
-        <div class="flex items-center justify-between mb-4">
-          <div>
-            <h2 class="text-base font-bold text-white flex items-center gap-2 font-display"><i data-lucide="bot" class="w-5 h-5 text-violet-400"></i>P&amp;L by EA / Strategy</h2>
-            <p class="text-xs text-slate-500 mt-0.5">Merged by EA Name • click name to configure</p>
+    <!-- Main Content Area -->
+    <main class="dashboard-body">
+      
+      <!-- Metric Cards KPI Grid -->
+      <section class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">TOTAL BALANCE</span>
+            <i class="fa-solid fa-vault kpi-icon"></i>
           </div>
-          <span class="text-[11px] text-slate-400 font-mono">Auto-merged</span>
-        </div>
-        <div id="eaChart" class="space-y-3.5 pt-1"></div>
-      </div>
-      <div class="reveal glass rounded-2xl p-6"><div class="mb-4"><h2 class="text-base font-bold text-white flex items-center gap-2 font-display"><i data-lucide="pie-chart" class="w-5 h-5 text-amber-400"></i>Win / Loss Ratio</h2><p class="text-xs text-slate-500 mt-0.5">Overall trade success</p></div><div id="winLossChart"></div></div>
-    </section>
-
-    <!-- CALENDAR -->
-    <section class="reveal glass rounded-2xl p-6 space-y-6">
-      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
-        <div><h2 class="text-lg font-bold text-white flex items-center gap-2 font-display"><i data-lucide="calendar-days" class="w-5 h-5 text-emerald-400"></i>Daily P&amp;L Calendar</h2><p class="text-xs text-slate-500 mt-0.5">Day-by-day profitability heatmap</p></div>
-        <div class="flex items-center gap-3">
-          <div class="bg-slate-900/70 border border-white/10 px-4 py-1.5 rounded-xl text-sm font-semibold flex items-center gap-2"><span class="text-slate-400">Monthly:</span><span id="calendarMonthTotal" class="font-bold text-emerald-400">$0.00</span></div>
-          <div class="flex items-center bg-slate-900/70 border border-white/10 rounded-xl overflow-hidden p-0.5"><button onclick="changeMonth(-1)" class="p-1.5 hover:bg-white/10 text-slate-400 hover:text-white rounded-lg transition"><i data-lucide="chevron-left" class="w-4 h-4"></i></button><span id="calendarCurrentMonth" class="px-3 text-sm font-medium text-slate-200 w-32 text-center">—</span><button onclick="changeMonth(1)" class="p-1.5 hover:bg-white/10 text-slate-400 hover:text-white rounded-lg transition"><i data-lucide="chevron-right" class="w-4 h-4"></i></button></div>
-        </div>
-      </div>
-      <div><div class="grid grid-cols-7 gap-2 text-center text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-2"><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div><div>Sun</div></div><div id="calendarGrid" class="grid grid-cols-7 gap-2"></div></div>
-    </section>
-
-    <!-- ACCOUNTS + OPEN POSITIONS -->
-    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div class="reveal glass rounded-2xl p-6 space-y-4">
-        <h2 class="text-base font-bold text-white flex items-center gap-2 font-display"><i data-lucide="layers" class="w-5 h-5 text-cyan-400"></i>Connected MT5 Accounts</h2>
-        <p class="text-xs text-slate-500 -mt-2">Live terminals streaming to the cloud</p>
-        <div id="accountsGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[420px] overflow-y-auto pr-1"></div>
-      </div>
-      <div class="reveal glass rounded-2xl p-6 space-y-4 flex flex-col">
-        <div class="flex items-center justify-between">
-          <h2 class="text-base font-bold text-white flex items-center gap-2 font-display"><i data-lucide="radio" class="w-5 h-5 text-rose-400"></i>Active Open Positions</h2>
-          <span id="liveOpenBadge" class="text-xs bg-rose-500/10 text-rose-400 px-2.5 py-1 rounded-full font-mono border border-rose-500/20">0 Active</span>
-        </div>
-        <div class="overflow-x-auto flex-1 max-h-[380px]">
-          <table class="w-full text-left text-xs">
-            <thead class="text-slate-400 uppercase bg-slate-900/60 sticky top-0"><tr><th class="p-2.5 rounded-l-lg">EA / Acc</th><th class="p-2.5">Symbol</th><th class="p-2.5">Type</th><th class="p-2.5">Lots</th><th class="p-2.5">Entry</th><th class="p-2.5 rounded-r-lg text-right">Float P&amp;L</th></tr></thead>
-            <tbody id="openPositionsTable" class="divide-y divide-white/5 text-slate-300"></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- ACTIVE PENDING ORDERS (NEW) -->
-    <section class="reveal glass rounded-2xl p-6 space-y-4">
-      <div class="flex items-center justify-between pb-1 border-b border-white/5">
-        <div>
-          <h2 class="text-base font-bold text-white flex items-center gap-2 font-display">
-            <i data-lucide="clock" class="w-5 h-5 text-amber-400"></i>Active Pending Orders
-          </h2>
-          <p class="text-xs text-slate-500 mt-0.5">Live Limit &amp; Stop orders waiting for execution</p>
-        </div>
-        <span id="pendingOrdersBadge" class="text-xs bg-amber-500/10 text-amber-400 px-2.5 py-1 rounded-full font-mono border border-amber-500/20">0 Pending</span>
-      </div>
-      <div class="overflow-x-auto max-h-[360px]">
-        <table class="w-full text-left text-xs">
-          <thead class="text-slate-400 uppercase bg-slate-900/60 sticky top-0">
-            <tr>
-              <th class="p-2.5 rounded-l-lg">EA / Strategy</th>
-              <th class="p-2.5">Symbol</th>
-              <th class="p-2.5">Order Type</th>
-              <th class="p-2.5">Lots</th>
-              <th class="p-2.5">Order Price</th>
-              <th class="p-2.5">Market Price</th>
-              <th class="p-2.5">SL / TP</th>
-              <th class="p-2.5 rounded-r-lg text-right">Placed Time</th>
-            </tr>
-          </thead>
-          <tbody id="pendingOrdersTable" class="divide-y divide-white/5 text-slate-300"></tbody>
-        </table>
-      </div>
-    </section>
-
-    <!-- LEADERBOARD -->
-    <section class="reveal glass rounded-2xl p-6 space-y-4">
-      <div class="flex items-center justify-between pb-1">
-        <div>
-          <h2 class="text-lg font-bold text-white flex items-center gap-2 font-display"><i data-lucide="trophy" class="w-5 h-5 text-amber-400"></i>EA Performance Leaderboard</h2>
-          <p class="text-xs text-slate-500 mt-0.5">Ranked by total net profit • Click any EA to rename or edit</p>
-        </div>
-        <span class="text-xs text-slate-400 font-mono hidden sm:inline">💡 Click row to rename</span>
-      </div>
-      <div class="overflow-x-auto">
-        <table class="w-full text-left text-sm">
-          <thead class="text-xs text-slate-400 uppercase bg-slate-900/60">
-            <tr>
-              <th class="p-3 text-center rounded-l-lg w-14">Rank</th>
-              <th class="p-3">EA / Strategy</th>
-              <th class="p-3 text-right">Net P&amp;L</th>
-              <th class="p-3 text-center">Trades</th>
-              <th class="p-3 text-center">W / L</th>
-              <th class="p-3 text-center">Win Rate</th>
-              <th class="p-3 text-right">Avg</th>
-              <th class="p-3 text-right rounded-r-lg">Open</th>
-            </tr>
-          </thead>
-          <tbody id="eaLeaderboardBody" class="divide-y divide-white/5"></tbody>
-        </table>
-      </div>
-    </section>
-  </main>
-
-  <!-- ═══ MODAL 1: EA RENAME & MERGE MODAL ═══ -->
-  <div id="eaRenameModal" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-md hidden items-center justify-center p-4">
-    <div class="glass gradient-border rounded-2xl max-w-md w-full p-6 space-y-5 bg-[#0b1020] text-slate-100 shadow-2xl relative animate-in">
-      <div class="flex items-center justify-between border-b border-white/10 pb-3">
-        <div class="flex items-center gap-2">
-          <i data-lucide="edit-3" class="w-5 h-5 text-cyan-400"></i>
-          <h3 class="font-bold text-lg font-display text-white">Configure EA Name</h3>
-        </div>
-        <button onclick="closeModal('eaRenameModal')" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/10 transition"><i data-lucide="x" class="w-5 h-5"></i></button>
-      </div>
-
-      <div class="space-y-4 text-xs">
-        <div>
-          <label class="block text-slate-400 font-medium mb-1">Target Magic Number(s)</label>
-          <input type="text" id="renameMagicInput" class="w-full bg-slate-900/80 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-200 font-mono" placeholder="e.g. 1001, 1002" />
-          <p class="text-[11px] text-slate-500 mt-1">Separate multiple magic numbers by comma to merge them under one name.</p>
-        </div>
-
-        <div>
-          <label class="block text-slate-400 font-medium mb-1">Display Name</label>
-          <input type="text" id="renameEaNameInput" class="w-full bg-slate-900/80 border border-white/10 rounded-lg px-3 py-2 text-sm text-white" placeholder="e.g. Gold Scalper Pro" />
-        </div>
-
-        <div>
-          <label class="block text-slate-400 font-medium mb-1">Badge Color</label>
-          <div class="flex items-center gap-2">
-            <input type="color" id="renameColorInput" value="#3b82f6" class="w-10 h-10 rounded-lg bg-transparent cursor-pointer border border-white/10 p-0.5" />
-            <span id="renameColorHex" class="font-mono text-slate-400">#3b82f6</span>
+          <div class="kpi-value" id="kpiBalance">$0.00</div>
+          <div class="kpi-footer">
+            <span>Aggregated Deposits & Profit</span>
           </div>
         </div>
 
-        <div>
-          <label class="block text-slate-400 font-medium mb-1">Description (Optional)</label>
-          <input type="text" id="renameDescInput" class="w-full bg-slate-900/80 border border-white/10 rounded-lg px-3 py-2 text-sm text-slate-300" placeholder="e.g. Scalping XAUUSD on M5 timeframe" />
-        </div>
-      </div>
-
-      <div class="flex items-center justify-end gap-3 pt-2">
-        <button onclick="closeModal('eaRenameModal')" class="px-4 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs font-semibold hover:bg-slate-700 transition">Cancel</button>
-        <button id="saveEaRenameBtn" class="px-5 py-2 rounded-lg bg-cyan-500 text-slate-950 text-xs font-bold hover:bg-cyan-400 transition shadow-lg shadow-cyan-500/20">Save &amp; Merge</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- ═══ MODAL 2: PROFILE MANAGER MODAL ═══ -->
-  <div id="profileManagerModal" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-md hidden items-center justify-center p-4">
-    <div class="glass gradient-border rounded-2xl max-w-lg w-full p-6 space-y-5 bg-[#0b1020] text-slate-100 shadow-2xl relative max-h-[90vh] flex flex-col">
-      <div class="flex items-center justify-between border-b border-white/10 pb-3">
-        <div class="flex items-center gap-2">
-          <i data-lucide="sliders-horizontal" class="w-5 h-5 text-amber-400"></i>
-          <h3 class="font-bold text-lg font-display text-white">Account Profiles</h3>
-        </div>
-        <button onclick="closeModal('profileManagerModal')" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/10 transition"><i data-lucide="x" class="w-5 h-5"></i></button>
-      </div>
-
-      <div class="overflow-y-auto flex-1 space-y-4 pr-1 text-xs">
-        <div class="bg-slate-900/50 p-4 rounded-xl border border-white/5 space-y-3">
-          <h4 class="font-bold text-sm text-amber-300 flex items-center gap-1.5"><i data-lucide="plus-circle" class="w-4 h-4"></i> Create New Profile</h4>
-          <div>
-            <label class="block text-slate-400 mb-1 font-medium">Profile Name</label>
-            <input type="text" id="newProfileName" class="w-full bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-white" placeholder="e.g. Testing Fleet or Prop Challenge" />
+        <div class="kpi-card highlight-card">
+          <div class="kpi-header">
+            <span class="kpi-title">LIVE EQUITY</span>
+            <i class="fa-solid fa-chart-line kpi-icon"></i>
           </div>
-          <div>
-            <label class="block text-slate-400 mb-1 font-medium">Include MT5 Accounts</label>
-            <div id="profileAccountsCheckboxList" class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-36 overflow-y-auto bg-slate-950/80 p-2.5 rounded-lg border border-white/5"></div>
+          <div class="kpi-value" id="kpiEquity">$0.00</div>
+          <div class="kpi-footer">
+            <span id="kpiFreeMargin">Margin: $0.00</span>
           </div>
-          <button id="createProfileBtn" class="w-full py-2 rounded-lg bg-amber-500 text-slate-950 font-bold hover:bg-amber-400 transition text-xs shadow-lg shadow-amber-500/20">Create Profile</button>
         </div>
 
-        <div>
-          <h4 class="font-bold text-slate-300 mb-2">Existing Profiles</h4>
-          <div id="existingProfilesList" class="space-y-2"></div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ═══ MODAL 3: SHARE LINK GENERATOR ═══ -->
-  <div id="shareModal" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-md hidden items-center justify-center p-4">
-    <div class="glass gradient-border rounded-2xl max-w-lg w-full p-6 space-y-5 bg-[#0b1020] text-slate-100 shadow-2xl relative max-h-[90vh] flex flex-col">
-      <div class="flex items-center justify-between border-b border-white/10 pb-3">
-        <div class="flex items-center gap-2">
-          <i data-lucide="share-2" class="w-5 h-5 text-cyan-400"></i>
-          <h3 class="font-bold text-lg font-display text-white">Share Dashboard Link</h3>
-        </div>
-        <button onclick="closeModal('shareModal')" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/10 transition"><i data-lucide="x" class="w-5 h-5"></i></button>
-      </div>
-
-      <div class="overflow-y-auto flex-1 space-y-4 pr-1 text-xs">
-        <div class="bg-slate-900/50 p-4 rounded-xl border border-white/5 space-y-3">
-          <div>
-            <label class="block text-slate-400 mb-1 font-medium">1. Select Profile to Share</label>
-            <select id="shareProfileSelect" class="w-full bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-white"></select>
-            <p class="text-[11px] text-slate-500 mt-1">Friends will ONLY be able to see accounts in this profile. Other accounts cannot be accessed.</p>
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">FLOATING P&amp;L</span>
+            <i class="fa-solid fa-wave-square kpi-icon"></i>
           </div>
+          <div class="kpi-value" id="kpiFloatingPnl">$0.00</div>
+          <div class="kpi-footer" id="kpiOpenPositionsCount">
+            0 Open Positions
+          </div>
+        </div>
 
-          <div>
-            <label class="block text-slate-400 mb-1 font-medium">2. Start Date (History Visibility)</label>
-            <div class="grid grid-cols-2 gap-2">
-              <label class="flex items-center gap-2 bg-slate-950 p-2.5 rounded-lg border border-white/10 cursor-pointer">
-                <input type="radio" name="shareDateType" value="all" checked />
-                <span>All Past Data</span>
-              </label>
-              <label class="flex items-center gap-2 bg-slate-950 p-2.5 rounded-lg border border-white/10 cursor-pointer">
-                <input type="radio" name="shareDateType" value="specific" />
-                <span>From Date…</span>
-              </label>
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">CLOSED PROFIT / LOSS</span>
+            <i class="fa-solid fa-hand-holding-dollar kpi-icon"></i>
+          </div>
+          <div class="kpi-value" id="kpiClosedPnl">$0.00</div>
+          <div class="kpi-footer">
+            <span id="kpiWinRate">Win Rate: 0.0%</span>
+          </div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">TODAY P&amp;L</span>
+            <i class="fa-solid fa-calendar-day kpi-icon"></i>
+          </div>
+          <div class="kpi-value" id="kpiTodayPnl">$0.00</div>
+          <div class="kpi-footer">
+            <span id="kpiProfitFactor">Profit Factor: 0.00</span>
+          </div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-header">
+            <span class="kpi-title">ACTIVE PENDING ORDERS</span>
+            <i class="fa-solid fa-clock-rotate-left kpi-icon"></i>
+          </div>
+          <div class="kpi-value" id="kpiPendingCount">0</div>
+          <div class="kpi-footer">
+            <span id="kpiPendingLots">Total Lots: 0.00</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Charts & Visual Analytics Section -->
+      <section class="analytics-row">
+        <div class="chart-container-card main-chart-card">
+          <div class="chart-card-header">
+            <div class="chart-title-wrap">
+              <h3><i class="fa-solid fa-chart-area"></i> Portfolio Growth Curve</h3>
+              <p>Aggregated Balance vs Equity Progression</p>
             </div>
-            <input type="date" id="shareStartDateInput" class="w-full mt-2 bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-white hidden" />
           </div>
-
-          <div>
-            <label class="block text-slate-400 mb-1 font-medium">3. Optional Label</label>
-            <input type="text" id="shareLabelInput" class="w-full bg-slate-950 border border-white/10 rounded-lg px-3 py-2 text-white" placeholder="e.g. Shared with Alex" />
-          </div>
-
-          <button id="generateShareBtn" class="w-full py-2.5 rounded-lg bg-cyan-500 text-slate-950 font-bold hover:bg-cyan-400 transition text-xs shadow-lg shadow-cyan-500/20">Generate Secure Link</button>
+          <div id="equityBalanceChart" class="chart-render-area"></div>
         </div>
 
-        <div id="generatedLinkBox" class="hidden bg-emerald-950/40 border border-emerald-500/30 p-3.5 rounded-xl space-y-2">
-          <div class="flex items-center justify-between text-emerald-400 font-bold">
-            <span>✅ Share Link Ready</span>
-            <button id="copyShareBtn" class="text-xs bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 px-3 py-1 rounded border border-emerald-400/30">Copy Link</button>
+        <div class="chart-container-card side-chart-card">
+          <div class="chart-card-header">
+            <div class="chart-title-wrap">
+              <h3><i class="fa-solid fa-chart-pie"></i> EA Profit Breakdown</h3>
+              <p>PnL Contribution by Unified EA</p>
+            </div>
           </div>
-          <input type="text" id="shareUrlOutput" readonly class="w-full bg-slate-950 border border-white/10 rounded px-2.5 py-1.5 font-mono text-[11px] text-slate-300 select-all" />
+          <div id="eaDistributionChart" class="chart-render-area"></div>
+        </div>
+      </section>
+
+      <!-- Primary Tabs & Data Tables Section -->
+      <section class="dashboard-tables-container">
+        <!-- Navigation Tab Headers -->
+        <div class="table-nav-tabs">
+          <button class="tab-btn active" data-tab="openPositionsTab">
+            <i class="fa-solid fa-chart-simple"></i> Open Positions 
+            <span class="badge-tab-count" id="tabBadgeOpen">0</span>
+          </button>
+          
+          <button class="tab-btn" data-tab="pendingOrdersTab">
+            <i class="fa-solid fa-stopwatch"></i> Pending Orders 
+            <span class="badge-tab-count" id="tabBadgePending">0</span>
+          </button>
+
+          <button class="tab-btn" data-tab="eaPerformanceTab">
+            <i class="fa-solid fa-robot"></i> EA Performance &amp; Magic Merging
+          </button>
+
+          <button class="tab-btn" data-tab="closedTradesTab">
+            <i class="fa-solid fa-clock-rotate-left"></i> Closed Trade History
+          </button>
+
+          <button class="tab-btn" data-tab="accountsOverviewTab">
+            <i class="fa-solid fa-server"></i> Accounts Health Matrix
+          </button>
         </div>
 
-        <div>
-          <h4 class="font-bold text-slate-300 mb-2">Active Share Links</h4>
-          <div id="activeShareLinksList" class="space-y-2"></div>
+        <!-- TAB 1: LIVE OPEN POSITIONS -->
+        <div id="openPositionsTab" class="tab-content active">
+          <div class="table-responsive-wrapper">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Ticket</th>
+                  <th>Account</th>
+                  <th>Symbol</th>
+                  <th>Type</th>
+                  <th>Lots</th>
+                  <th>Open Price</th>
+                  <th>Current Price</th>
+                  <th>SL / TP</th>
+                  <th>EA Name / Magic</th>
+                  <th>Open Time</th>
+                  <th>Floating Profit</th>
+                </tr>
+              </thead>
+              <tbody id="openPositionsTableBody">
+                <tr>
+                  <td colspan="11" class="empty-state">No open positions currently active across selected accounts.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- TAB 2: ACTIVE PENDING ORDERS -->
+        <div id="pendingOrdersTab" class="tab-content">
+          <div class="table-responsive-wrapper">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Ticket</th>
+                  <th>Account</th>
+                  <th>Symbol</th>
+                  <th>Order Type</th>
+                  <th>Lots</th>
+                  <th>Setup Price</th>
+                  <th>Current Price</th>
+                  <th>Distance (Pts)</th>
+                  <th>SL / TP</th>
+                  <th>EA Name / Magic</th>
+                  <th>Setup Time</th>
+                </tr>
+              </thead>
+              <tbody id="pendingOrdersTableBody">
+                <tr>
+                  <td colspan="11" class="empty-state">No active pending orders at this moment.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- TAB 3: EA PERFORMANCE & MAGIC MERGING -->
+        <div id="eaPerformanceTab" class="tab-content">
+          <div class="tab-action-bar">
+            <span class="info-tip"><i class="fa-solid fa-circle-info"></i> Click the <strong><i class="fa-solid fa-pen-to-square"></i> Edit</strong> button next to any EA or Magic Number to rename or merge multiple magic numbers into a single EA!</span>
+          </div>
+          <div class="table-responsive-wrapper">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>EA Display Name</th>
+                  <th>Magic Number(s)</th>
+                  <th>Accounts Running</th>
+                  <th>Total Trades</th>
+                  <th>Win Rate</th>
+                  <th>Profit Factor</th>
+                  <th>Gross Profit</th>
+                  <th>Gross Loss</th>
+                  <th>Net Profit</th>
+                  <th>Open Lots</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="eaPerformanceTableBody">
+                <tr>
+                  <td colspan="11" class="empty-state">No EA performance records found.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- TAB 4: CLOSED TRADES HISTORY -->
+        <div id="closedTradesTab" class="tab-content">
+          <div class="table-action-header">
+            <div class="search-input-wrap">
+              <i class="fa-solid fa-magnifying-glass"></i>
+              <input type="text" id="tradeSearchInput" placeholder="Filter by Symbol, Ticket, or EA Name..." />
+            </div>
+            <div class="trades-summary-inline" id="closedTradesSummary">
+              Showing 0 trades
+            </div>
+          </div>
+          <div class="table-responsive-wrapper">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Ticket</th>
+                  <th>Account</th>
+                  <th>Symbol</th>
+                  <th>Type</th>
+                  <th>Lots</th>
+                  <th>Open Time</th>
+                  <th>Close Time</th>
+                  <th>Open Price</th>
+                  <th>Close Price</th>
+                  <th>EA Name / Magic</th>
+                  <th>Profit</th>
+                </tr>
+              </thead>
+              <tbody id="closedTradesTableBody">
+                <tr>
+                  <td colspan="11" class="empty-state">No closed trades for the selected timeframe and profile.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- TAB 5: ACCOUNTS OVERVIEW / HEALTH MATRIX -->
+        <div id="accountsOverviewTab" class="tab-content">
+          <div class="accounts-grid" id="accountsMatrixContainer">
+            <!-- Dynamically populated account cards -->
+          </div>
+        </div>
+
+      </section>
+    </main>
+
+    <!-- Dashboard Footer -->
+    <footer class="app-footer">
+      <div class="footer-left">
+        <span>QuantPulse High-Frequency Trading Terminal &bull; Continuous WebSocket / REST Pipeline</span>
+      </div>
+      <div class="footer-right">
+        <span id="lastSyncedTime">Last Sync: Never</span>
+      </div>
+    </footer>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- 3. MODAL: PROFILE MANAGER                  -->
+  <!-- ========================================== -->
+  <div id="profileManagerModal" class="modal-backdrop">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">
+          <i class="fa-solid fa-folder-tree"></i>
+          <h3>Manage Multi-Account Profiles</h3>
+        </div>
+        <button class="btn-close-modal" data-close="profileManagerModal"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="profile-creator-box">
+          <h4>Create New Profile</h4>
+          <p class="subtitle">Group specific accounts (e.g. "Main Funded 500k", "Testing Bot Alpha")</p>
+          
+          <div class="form-group">
+            <label>Profile Name:</label>
+            <input type="text" id="newProfileNameInput" placeholder="e.g., Live Alpha Accounts" />
+          </div>
+
+          <div class="form-group">
+            <label>Select Accounts to Include:</label>
+            <div id="profileAccountsCheckboxList" class="checkbox-selection-grid">
+              <!-- Dynamically populated accounts -->
+            </div>
+          </div>
+
+          <button id="btnCreateProfileSubmit" class="btn-primary full-width">
+            <i class="fa-solid fa-plus"></i> Save Profile
+          </button>
+        </div>
+
+        <hr class="modal-divider" />
+
+        <h4>Existing Profiles</h4>
+        <div id="existingProfilesList" class="existing-items-list">
+          <!-- Dynamically populated profiles -->
         </div>
       </div>
     </div>
   </div>
 
-  <footer class="border-t border-white/5 text-center py-6 text-xs text-slate-600">
-    MT5 Multi-Account Command Center • <span id="dataMode" class="text-slate-500">Cloud</span>
-  </footer>
+  <!-- ========================================== -->
+  <!-- 4. MODAL: SECURE SHARE LINK GENERATOR      -->
+  <!-- ========================================== -->
+  <div id="shareLinkModal" class="modal-backdrop">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">
+          <i class="fa-solid fa-share-nodes"></i>
+          <h3>Generate Secure Shareable Link</h3>
+        </div>
+        <button class="btn-close-modal" data-close="shareLinkModal"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <p class="subtitle">
+          Create a restricted, read-only URL with optional historical date constraints. If anyone removes the share token from the URL, they will be blocked by the Master Passcode!
+        </p>
 
-  <script src="/js/dashboard.js"></script>
+        <div class="form-group">
+          <label>Link Label / Description:</label>
+          <input type="text" id="shareLabelInput" placeholder="e.g., Investor Client Link - Testing Account" />
+        </div>
+
+        <div class="form-group">
+          <label>Select Profile or Specific Accounts:</label>
+          <select id="shareProfileSelect" class="custom-select full-width">
+            <option value="">-- Select Profile or All --</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Restrict History Start Date (From Date):</label>
+          <input type="date" id="shareFromDateInput" class="custom-date-input" />
+          <small class="helper-text">Leave blank to allow all past trading history.</small>
+        </div>
+
+        <button id="btnGenerateShareSubmit" class="btn-primary full-width">
+          <i class="fa-solid fa-link"></i> Generate Secure Link
+        </button>
+
+        <!-- Newly generated link container -->
+        <div id="generatedShareUrlBox" class="generated-url-box hidden">
+          <label>Your Secure Shareable URL:</label>
+          <div class="copy-input-group">
+            <input type="text" id="shareGeneratedUrlInput" readonly />
+            <button id="btnCopyGeneratedUrl" class="btn-secondary" title="Copy to Clipboard">
+              <i class="fa-regular fa-copy"></i>
+            </button>
+          </div>
+          <span class="success-alert" id="copySuccessAlert"><i class="fa-solid fa-check"></i> Copied to clipboard!</span>
+        </div>
+
+        <hr class="modal-divider" />
+
+        <h4>Active Shared Links</h4>
+        <div id="activeSharesList" class="existing-items-list">
+          <!-- Dynamically populated active links -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- 5. MODAL: EA RENAME & MERGE BY NAME        -->
+  <!-- ========================================== -->
+  <div id="eaRenameModal" class="modal-backdrop">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">
+          <i class="fa-solid fa-robot"></i>
+          <h3>Rename or Merge EA</h3>
+        </div>
+        <button class="btn-close-modal" data-close="eaRenameModal"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Target Magic Number:</label>
+          <input type="text" id="eaModalMagicNumber" readonly class="input-readonly" />
+        </div>
+
+        <div class="form-group">
+          <label>Current Assigned Name:</label>
+          <input type="text" id="eaModalCurrentName" readonly class="input-readonly" />
+        </div>
+
+        <div class="form-group">
+          <label>New EA Name:</label>
+          <input type="text" id="eaModalNewNameInput" placeholder="e.g., GoldScalper Pro v2" />
+        </div>
+
+        <div class="merge-notice-box" id="eaMergeNoticeBox">
+          <i class="fa-solid fa-circle-nodes"></i>
+          <span>
+            <strong>Merge Notice:</strong> If you assign an existing EA name, this Magic Number will be automatically merged into that EA's unified stats, charts, and open positions.
+          </span>
+        </div>
+
+        <button id="btnSaveEaNameSubmit" class="btn-primary full-width">
+          <i class="fa-solid fa-floppy-disk"></i> Save EA Name
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- 6. MODAL: CUSTOM DATE RANGE PICKER         -->
+  <!-- ========================================== -->
+  <div id="customDateModal" class="modal-backdrop">
+    <div class="modal-card modal-sm">
+      <div class="modal-header">
+        <div class="modal-title">
+          <i class="fa-regular fa-calendar-days"></i>
+          <h3>Select Custom Date Range</h3>
+        </div>
+        <button class="btn-close-modal" data-close="customDateModal"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Start Date:</label>
+          <input type="date" id="customStartDateInput" class="custom-date-input" />
+        </div>
+        <div class="form-group">
+          <label>End Date:</label>
+          <input type="date" id="customEndDateInput" class="custom-date-input" />
+        </div>
+        <button id="btnApplyCustomDate" class="btn-primary full-width">
+          Apply Filter
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dashboard Frontend Controller Script -->
+  <script src="dashboard.js"></script>
 </body>
 </html>
