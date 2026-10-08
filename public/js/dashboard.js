@@ -1,12 +1,11 @@
 // ═══════════════════════════════════════════════════════════════
 // MT5 COMMAND CENTER — FUTURISTIC DASHBOARD ENGINE (vanilla JS)
-// Calls your REAL /api endpoints. If an endpoint is unreachable
-// (e.g. running the file outside your server), it falls back to
-// built-in demo data so the UI still renders.
 // ═══════════════════════════════════════════════════════════════
 
+// ─── STATE MANAGEMENT ───
+let currentProfile = 'all';
 let currentAccount = 'all';
-let currentMagic = 'all';
+let currentMagic = 'all'; // Can be magic number or EA name (for merged groups)
 
 // Initialize default range as Current Month (from 1st of month to today)
 const todayInit = new Date();
@@ -14,152 +13,90 @@ const initYear = todayInit.getFullYear();
 const initMonth = String(todayInit.getMonth() + 1).padStart(2, '0');
 const initDay = String(todayInit.getDate()).padStart(2, '0');
 
-let currentFrom = `${initYear}-${initMonth}-01`;   // 'YYYY-MM-01'
-let currentTo = `${initYear}-${initMonth}-${initDay}`;     // 'YYYY-MM-DD' (Today)
+let currentFrom = `${initYear}-${initMonth}-01`;
+let currentTo = `${initYear}-${initMonth}-${initDay}`;
 
 let calendarDate = new Date();
 let usingMock = false;
+let firstLoad = true;
+let isSharedMode = false;
+let shareScopeInfo = null;
 
-// ─── DATE RANGE HELPERS ───
-function toYMD(d) { const z = new Date(d.getTime() - d.getTimezoneOffset() * 60000); return z.toISOString().slice(0, 10); }
-function dateParams() { const q = []; if (currentFrom) q.push('from=' + currentFrom); if (currentTo) q.push('to=' + currentTo); return q; }
-function rangeInfo() {
-  if (!currentFrom && !currentTo) return { days: null };
-  const from = currentFrom ? new Date(currentFrom) : null;
-  const to = currentTo ? new Date(currentTo) : new Date();
-  const days = from ? Math.max(1, Math.round((to - from) / 86400000) + 1) : null;
-  return { days };
-}
-function rangeFactor() { const { days } = rangeInfo(); return days == null ? 1 : Math.min(Math.max(days / 90, 0.04), 1); }
-function applyRangeToEAs(list) {
-  const f = rangeFactor(); if (f >= 1) return list;
-  return list.map((e) => ({ ...e, total_pnl: +(e.total_pnl * f).toFixed(2), total_trades: Math.max(1, Math.round(e.total_trades * f)), wins: Math.round(e.wins * f), losses: Math.round(e.losses * f) }));
-}
+// Check URL for share token (?share=token)
+const urlParams = new URLSearchParams(window.location.search);
+const shareToken = urlParams.get('share') || null;
 
-// ─── FORMATTERS ───
+// Caches for fast modal population
+let cachedAccounts = [];
+let cachedProfiles = [];
+let cachedEAs = [];
+
+// ─── HELPERS ───
+const $ = (id) => document.getElementById(id);
+const toYMD = (d) => { const z = new Date(d.getTime() - d.getTimezoneOffset() * 60000); return z.toISOString().slice(0, 10); };
 const formatUSD = (num) => {
   const v = Number(num) || 0;
   return (v >= 0 ? '+$' : '-$') + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 const formatPlainUSD = (num) => '$' + (Number(num) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const compact = (v) => Math.abs(v) >= 1000 ? '$' + (v / 1000).toFixed(1) + 'k' : '$' + v.toFixed(0);
-const $ = (id) => document.getElementById(id);
 
-// ─── SAFE FETCH with mock fallback ───
-async function api(path) {
+// Modal helpers
+function openModal(id) {
+  const m = $(id);
+  if (m) {
+    m.classList.remove('hidden');
+    m.classList.add('flex');
+    lucide.createIcons();
+  }
+}
+function closeModal(id) {
+  const m = $(id);
+  if (m) {
+    m.classList.add('hidden');
+    m.classList.remove('flex');
+  }
+}
+window.closeModal = closeModal;
+window.openModal = openModal;
+
+// Query parameter builder
+function buildQueryParams() {
+  const q = [];
+  if (currentProfile && currentProfile !== 'all') q.push('profile=' + encodeURIComponent(currentProfile));
+  if (currentAccount && currentAccount !== 'all') q.push('account=' + encodeURIComponent(currentAccount));
+  if (currentMagic && currentMagic !== 'all') q.push('magic=' + encodeURIComponent(currentMagic));
+  if (currentFrom) q.push('from=' + encodeURIComponent(currentFrom));
+  if (currentTo) q.push('to=' + encodeURIComponent(currentTo));
+  if (shareToken) q.push('share=' + encodeURIComponent(shareToken));
+  return q.length ? '?' + q.join('&') : '';
+}
+
+// ─── SAFE API FETCH with automatic share token injection ───
+async function api(path, options = {}) {
   try {
-    const res = await fetch('/api' + path, { headers: { 'Accept': 'application/json' } });
-    if (!res.ok) throw new Error('bad status');
+    const sep = path.includes('?') ? '&' : '?';
+    const shareQuery = shareToken ? `${sep}share=${encodeURIComponent(shareToken)}` : '';
+    const headers = {
+      'Accept': 'application/json',
+      ...(options.headers || {}),
+      ...(shareToken ? { 'x-share-token': shareToken } : {})
+    };
+
+    const res = await fetch('/api' + path + shareQuery, { ...options, headers });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    if (data && data.success === false) throw new Error('api false');
+    if (data && data.success === false) throw new Error(data.error || 'API Error');
     return data;
   } catch (e) {
+    console.warn(`API call failed for /api${path}:`, e.message);
     usingMock = true;
     return null;
   }
 }
 
 // ═══════════════════════════════════════════════════════════════
-// DEMO / MOCK FALLBACK DATA (only used when /api is unreachable)
-// ═══════════════════════════════════════════════════════════════
-const MOCK_EAS = [
-  { magic_number: 10234, ea_name: 'Quantum Scalper', color: '#22d3ee', total_pnl: 18640.25, total_trades: 420, wins: 290, losses: 130, open_pnl: 640.5 },
-  { magic_number: 20481, ea_name: 'Momentum Hunter', color: '#a855f7', total_pnl: 12380.0, total_trades: 210, wins: 128, losses: 82, open_pnl: 180.0 },
-  { magic_number: 30119, ea_name: 'Grid Master Pro', color: '#34d399', total_pnl: 9240.75, total_trades: 560, wins: 310, losses: 250, open_pnl: -220.0 },
-  { magic_number: 40567, ea_name: 'Trend Rider', color: '#fbbf24', total_pnl: 6820.4, total_trades: 150, wins: 95, losses: 55, open_pnl: 420.0 },
-  { magic_number: 60342, ea_name: 'Breakout Bot', color: '#60a5fa', total_pnl: 3790.1, total_trades: 90, wins: 52, losses: 38, open_pnl: 300.0 },
-  { magic_number: 50823, ea_name: 'Mean Reversion X', color: '#fb7185', total_pnl: -2140.3, total_trades: 180, wins: 70, losses: 110, open_pnl: -160.0 },
-];
-const MOCK_ACCOUNTS = [
-  { account_number: '5017842', account_name: 'Apollo Prime', broker: 'IC Markets', balance: 48250, equity: 49120, today_profit: 870, open_count: 3, floating_pnl: 870 },
-  { account_number: '3390127', account_name: 'Vega Challenge', broker: 'FTMO', balance: 100000, equity: 103250, today_profit: 3250, open_count: 5, floating_pnl: 3250 },
-  { account_number: '7781005', account_name: 'Helios Fund', broker: 'Pepperstone', balance: 32100, equity: 31640, today_profit: -460, open_count: 2, floating_pnl: -460 },
-  { account_number: '2204556', account_name: 'Orion Swing', broker: 'Exness', balance: 15600, equity: 15820, today_profit: 220, open_count: 1, floating_pnl: 220 },
-  { account_number: '9918234', account_name: 'Nova Grid', broker: 'Tickmill', balance: 27400, equity: 26980, today_profit: -420, open_count: 4, floating_pnl: -420 },
-];
-function mockOverview() {
-  const eas = filterEAs(applyRangeToEAs(MOCK_EAS));
-  const accs = filterAccounts(MOCK_ACCOUNTS);
-  const wins = eas.reduce((a, e) => a + e.wins, 0), losses = eas.reduce((a, e) => a + e.losses, 0);
-  const trades = wins + losses || 1;
-  return {
-    success: true,
-    total_balance: accs.reduce((a, c) => a + c.balance, 0),
-    total_equity: accs.reduce((a, c) => a + c.equity, 0),
-    total_accounts: accs.length,
-    today_pnl: accs.reduce((a, c) => a + c.today_profit, 0),
-    floating_pnl: accs.reduce((a, c) => a + c.floating_pnl, 0),
-    open_trades_count: accs.reduce((a, c) => a + c.open_count, 0),
-    month_pnl: 12840.65,
-    total_closed_profit: eas.reduce((a, e) => a + e.total_pnl, 0),
-    win_rate: ((wins / trades) * 100).toFixed(1),
-    profit_factor: '2.14', total_trades: trades, wins, losses,
-  };
-}
-function buildFullCurve() {
-  const pts = []; const days = 90; const target = MOCK_EAS.reduce((a, e) => a + e.total_pnl, 0);
-  let cum = 0, seed = 42; const rand = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
-  const now = Date.now();
-  for (let i = days; i >= 0; i--) {
-    const t = now - i * 86400000; const p = (days - i) / days;
-    cum = Math.max(0, target * (p - Math.pow(p, 1.8) * 0.15) + (rand() - 0.42) * 2600);
-    pts.push({ time: t, cumulative_profit: Math.round(cum) });
-  }
-  pts[pts.length - 1].cumulative_profit = Math.round(target);
-  return pts;
-}
-function mockCurve() {
-  const full = buildFullCurve();
-  const info = rangeInfo();
-  if (info.days == null) return full;
-  let pts;
-  if (currentFrom) {
-    const fromT = new Date(currentFrom).getTime();
-    const toT = (currentTo ? new Date(currentTo).getTime() : Date.now()) + 86400000;
-    pts = full.filter((p) => p.time >= fromT && p.time <= toT);
-  } else {
-    pts = full.slice(-info.days);
-  }
-  if (pts.length < 2) pts = full.slice(-2);
-  const base = pts[0].cumulative_profit;
-  return pts.map((p) => ({ time: p.time, cumulative_profit: p.cumulative_profit - base }));
-}
-function mockCalendar(year, month) {
-  const dim = new Date(year, month, 0).getDate(); const days = []; let total = 0;
-  let seed = year * 100 + month; const rand = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
-  const today = new Date();
-  for (let d = 1; d <= dim; d++) {
-    const date = new Date(year, month - 1, d); if (date > today) continue;
-    const dow = date.getDay(); if ((dow === 0 || dow === 6) && rand() > 0.15) continue;
-    if (rand() < 0.28) continue;
-    const prof = rand() > 0.38; const mag = Math.round(rand() * (prof ? 1600 : 950)) + 40;
-    const profit = prof ? mag : -mag; const trades = Math.floor(rand() * 18) + 2;
-    const wins = prof ? Math.ceil(trades * (0.55 + rand() * 0.3)) : Math.floor(trades * (0.2 + rand() * 0.25));
-    total += profit;
-    days.push({ date: `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`, profit, trades_count: trades, wins, losses: trades - wins });
-  }
-  return { success: true, month_total_pnl: total, days };
-}
-function mockPositions() {
-  const syms = ['XAUUSD', 'EURUSD', 'GBPJPY', 'US30', 'NAS100', 'BTCUSD', 'USDJPY', 'AUDUSD'];
-  const out = []; let seed = 7; const rand = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
-  MOCK_ACCOUNTS.forEach((acc) => {
-    for (let i = 0; i < acc.open_count; i++) {
-      const ea = MOCK_EAS[Math.floor(rand() * MOCK_EAS.length)];
-      out.push({ account_number: acc.account_number, ea_name: ea.ea_name, magic_number: ea.magic_number,
-        symbol: syms[Math.floor(rand() * syms.length)], trade_type: rand() > 0.5 ? 'BUY' : 'SELL',
-        volume: (Math.floor(rand() * 20) / 10 + 0.1).toFixed(2), open_price: (1000 + rand() * 2000).toFixed(2),
-        profit: Math.round((rand() - 0.42) * 900 * 100) / 100, swap: Math.round((rand() - 0.5) * 20) / 10 });
-    }
-  });
-  return out;
-}
-const filterAccounts = (list) => currentAccount === 'all' ? list : list.filter((a) => String(a.account_number) === String(currentAccount));
-const filterEAs = (list) => currentMagic === 'all' ? list : list.filter((e) => String(e.magic_number) === String(currentMagic));
-const filterPositions = (list) => list.filter((p) => (currentAccount === 'all' || String(p.account_number) === String(currentAccount)) && (currentMagic === 'all' || String(p.magic_number) === String(currentMagic)));
-
-// ═══════════════════════════════════════════════════════════════
-// BACKGROUND: starfield + cursor spotlight
+// BACKGROUND & VISUALS
 // ═══════════════════════════════════════════════════════════════
 function initBackground() {
   const spot = $('spotlight');
@@ -194,8 +131,7 @@ function initBackground() {
   })();
 }
 
-// ─── count-up ───
-function animateValue(el, end, { decimals = 0, prefix = '', suffix = '', duration = 1600 } = {}) {
+function animateValue(el, end, { decimals = 0, prefix = '', suffix = '', duration = 1400 } = {}) {
   if (!el) return;
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const fmt = (v) => prefix + v.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }) + suffix;
@@ -208,14 +144,12 @@ function animateValue(el, end, { decimals = 0, prefix = '', suffix = '', duratio
   })(performance.now());
 }
 
-// ─── hero stat: animate on first load, then update live on every refresh ───
 function updateHero(id, value, { decimals = 0, prefix = '', suffix = '' } = {}) {
   const el = $(id); if (!el) return;
   if (firstLoad) { animateValue(el, value, { decimals, prefix, suffix }); }
   else { el.textContent = prefix + Number(value).toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }) + suffix; }
 }
 
-// ─── typing headline ───
 function typeHeadline(text) {
   const el = $('typed'); if (!el) return; let i = 0;
   const id = setInterval(() => {
@@ -224,7 +158,6 @@ function typeHeadline(text) {
   }, 90);
 }
 
-// ─── scroll reveal ───
 function initReveal() {
   const obs = new IntersectionObserver((entries) => {
     entries.forEach((en) => { if (en.isIntersecting) { en.target.classList.add('visible'); obs.unobserve(en.target); } });
@@ -233,24 +166,55 @@ function initReveal() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// INIT
+// 🚀 INITIALIZATION
 // ═══════════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', async () => {
   lucide.createIcons();
   initBackground();
   initReveal();
   typeHeadline('Center');
+
+  // Check if session is in Shared Mode
+  await checkShareSession();
+
+  // Filters event listeners
+  $('profileFilter').addEventListener('change', (e) => { currentProfile = e.target.value; refreshDashboard(); });
   $('accountFilter').addEventListener('change', (e) => { currentAccount = e.target.value; refreshDashboard(); });
   $('magicFilter').addEventListener('change', (e) => { currentMagic = e.target.value; refreshDashboard(); });
   initRangeFilter();
 
+  // Setup Modals & Buttons
+  setupModals();
+
+  // Initial Data Fetch
   await refreshDashboard(false, true);
 
-  // reveal loader out
-  setTimeout(() => $('loader').classList.add('hidden'), 1700);
+  // Reveal loader out
+  setTimeout(() => $('loader').classList.add('hidden'), 1500);
   setInterval(() => refreshDashboard(), 5000);
 });
 
+// ─── SHARE SESSION VERIFICATION ───
+async function checkShareSession() {
+  const info = await api('/share/info');
+  if (info && info.is_shared) {
+    isSharedMode = true;
+    shareScopeInfo = info;
+
+    // Show shared banner
+    $('sharedBanner').classList.remove('hidden');
+    $('sharedProfileName').textContent = info.profile_name || 'Shared Fleet';
+    if (info.from_date) {
+      $('sharedDateScope').textContent = `(Restricted: trades from ${info.from_date} onwards)`;
+    }
+
+    // Hide admin controls in shared mode
+    $('profileControlWrap').style.display = 'none';
+    $('openShareModalBtn').style.display = 'none';
+  }
+}
+
+// ─── DATE RANGE FILTER ───
 function initRangeFilter() {
   const sel = $('rangeFilter'); const custom = $('customRange');
   sel.addEventListener('change', (e) => {
@@ -279,36 +243,57 @@ function initRangeFilter() {
   });
 }
 
-let firstLoad = true;
+// ─── MASTER REFRESH ───
 async function refreshDashboard(spin = false, initial = false) {
   if (spin) { const ic = $('refreshIcon'); ic.classList.add('spin-once'); setTimeout(() => ic.classList.remove('spin-once'), 700); }
-  await Promise.all([fetchAccountsList(), fetchEAList(), fetchOverview(), fetchEquity(), fetchCalendar(), fetchPositions(), fetchLeaderboard()]);
+  
+  await Promise.all([
+    fetchProfilesList(),
+    fetchAccountsList(),
+    fetchEAList(),
+    fetchOverview(),
+    fetchEquity(),
+    fetchCalendar(),
+    fetchPositions(),
+    fetchPendingOrders(),
+    fetchLeaderboard()
+  ]);
+
   $('lastUpdated').textContent = new Date().toLocaleTimeString();
-  $('dataMode').textContent = usingMock ? 'Demo data (API offline)' : 'Cloud Sync';
+  $('dataMode').textContent = usingMock ? 'Demo data (API offline)' : (isSharedMode ? 'Shared Link' : 'Cloud Sync');
   lucide.createIcons();
   firstLoad = false;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// 1. DATA FETCHING METHODS
+// ═══════════════════════════════════════════════════════════════
+
 // 1. OVERVIEW
 async function fetchOverview() {
-  const dp = dateParams();
-  const d = await api(`/overview?account=${currentAccount}&magic=${currentMagic}${dp.length ? '&' + dp.join('&') : ''}`) || mockOverview();
+  const d = await api('/overview' + buildQueryParams()) || {
+    total_balance: 0, total_equity: 0, total_accounts: 0, today_pnl: 0,
+    floating_pnl: 0, open_trades_count: 0, pending_trades_count: 0, month_pnl: 0,
+    total_closed_profit: 0, win_rate: 0, profit_factor: '0.00', total_trades: 0, wins: 0, losses: 0
+  };
+
   const set = (id, t) => { const e = $(id); if (e) e.textContent = t; };
+
   if (firstLoad) {
     animateValue($('totalBalance'), d.total_balance, { decimals: 2, prefix: '$' });
     animateValue($('monthPnl'), d.month_pnl, { decimals: 2, prefix: d.month_pnl >= 0 ? '+$' : '-$' });
-    $('monthPnl').textContent; // placeholder
   } else {
     set('totalBalance', formatPlainUSD(d.total_balance));
     set('monthPnl', formatUSD(d.month_pnl));
   }
+
   set('totalEquity', formatPlainUSD(d.total_equity));
   set('accountCountBadge', `${d.total_accounts} Accs`);
   set('totalClosedPnl', formatUSD(d.total_closed_profit));
 
   const today = $('todayPnl'); today.textContent = formatUSD(d.today_pnl);
   today.className = `text-2xl font-extrabold tracking-tight font-display ${d.today_pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`;
-  const tIcon = $('todayIcon'); tIcon.setAttribute('data-lucide', d.today_pnl >= 0 ? 'trending-up' : 'trending-down');
+  const tIcon = $('todayIcon'); if (tIcon) tIcon.setAttribute('data-lucide', d.today_pnl >= 0 ? 'trending-up' : 'trending-down');
   $('todayIconWrap').className = `p-2 rounded-lg ${d.today_pnl >= 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`;
   $('todayOrb').style.background = d.today_pnl >= 0 ? '#34d399' : '#fb7185';
   $('todayCard').style.setProperty('--accent', d.today_pnl >= 0 ? '#34d399' : '#fb7185');
@@ -321,55 +306,123 @@ async function fetchOverview() {
   set('profitFactor', d.profit_factor);
   set('totalTradesCount', `${d.total_trades} (${d.wins}W / ${d.losses}L)`);
 
-  // hero stats — update live on every refresh
   updateHero('heroAccounts', d.total_accounts);
   updateHero('heroProfit', d.total_closed_profit, { prefix: '$' });
   updateHero('heroWin', Number(d.win_rate), { decimals: 1, suffix: '%' });
   renderDonut(d.wins, d.losses);
 }
 
-// 2. ACCOUNTS (+ filter dropdown)
+// 2. PROFILES LIST (+ Dropdown)
+async function fetchProfilesList() {
+  if (isSharedMode) return;
+  const d = await api('/profiles');
+  if (!d || !d.profiles) return;
+  cachedProfiles = d.profiles;
+
+  const sel = $('profileFilter'); const cur = sel.value;
+  sel.innerHTML = '';
+
+  d.profiles.forEach((p) => {
+    const o = document.createElement('option');
+    o.value = p.id;
+    o.textContent = `Profile: ${p.name}`;
+    if (String(p.id) === String(currentProfile) || (currentProfile === 'all' && p.slug === 'all')) {
+      o.selected = true;
+    }
+    sel.appendChild(o);
+  });
+}
+
+// 3. ACCOUNTS LIST (+ Filter dropdown & Grid)
 async function fetchAccountsList() {
-  const d = await api('/accounts');
-  const list = d ? d.accounts : filterAccounts(MOCK_ACCOUNTS);
-  const allList = d ? d.accounts : MOCK_ACCOUNTS;
+  const d = await api('/accounts' + buildQueryParams());
+  const accounts = d ? d.accounts : [];
+  cachedAccounts = accounts;
+
   const sel = $('accountFilter'); const cur = sel.value;
   sel.innerHTML = '<option value="all">All Accounts</option>';
-  allList.forEach((a) => { const o = document.createElement('option'); o.value = a.account_number; o.textContent = `${a.account_name || a.broker} • #${a.account_number}`; if (String(o.value) === cur) o.selected = true; sel.appendChild(o); });
+  accounts.forEach((a) => {
+    const o = document.createElement('option');
+    o.value = a.account_number;
+    o.textContent = `${a.account_name || a.broker} • #${a.account_number}`;
+    if (String(o.value) === String(cur)) o.selected = true;
+    sel.appendChild(o);
+  });
 
-  const shown = d ? filterAccounts(list) : list;
   const grid = $('accountsGrid');
-  if (!shown.length) { grid.innerHTML = '<div class="col-span-2 text-center py-6 text-slate-500 text-sm">No MT5 terminals connected yet</div>'; return; }
-  grid.innerHTML = shown.map((acc) => {
-    const pos = acc.today_profit >= 0; const pct = Math.min(Math.abs(acc.today_profit) / (acc.balance || 1) * 1000, 100);
+  if (!accounts.length) {
+    grid.innerHTML = '<div class="col-span-2 text-center py-6 text-slate-500 text-sm">No MT5 terminals in this scope</div>';
+    return;
+  }
+
+  grid.innerHTML = accounts.map((acc) => {
+    const pos = acc.today_profit >= 0;
+    const pct = Math.min(Math.abs(acc.today_profit) / (acc.balance || 1) * 1000, 100);
     return `<div class="tilt-card bg-slate-900/60 border border-white/5 p-4 rounded-xl hover:border-cyan-400/30 transition-all duration-300">
-      <div class="flex justify-between items-start mb-2"><div><h3 class="font-bold text-sm text-white">${acc.account_name || 'Account #' + acc.account_number}</h3><p class="text-xs text-slate-400">${acc.broker || 'MT5'} • #${acc.account_number}</p></div><span class="px-2 py-0.5 rounded text-[10px] font-mono ${pos ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}">${acc.open_count} Open</span></div>
-      <div class="mt-3 flex justify-between items-baseline"><div><span class="text-[10px] text-slate-500 uppercase block">Balance</span><span class="font-semibold text-sm text-slate-200">${formatPlainUSD(acc.balance)}</span></div><div class="text-right"><span class="text-[10px] text-slate-500 uppercase block">Today</span><span class="font-semibold text-sm ${pos ? 'text-emerald-400' : 'text-rose-400'}">${formatUSD(acc.today_profit)}</span></div></div>
+      <div class="flex justify-between items-start mb-2">
+        <div>
+          <h3 class="font-bold text-sm text-white">${acc.account_name || 'Account #' + acc.account_number}</h3>
+          <p class="text-xs text-slate-400">${acc.broker || 'MT5'} • #${acc.account_number}</p>
+        </div>
+        <div class="flex items-center gap-1">
+          <span class="px-2 py-0.5 rounded text-[10px] font-mono ${pos ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}">${acc.open_count} Open</span>
+          ${acc.pending_count > 0 ? `<span class="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/10 text-amber-400">${acc.pending_count} Pend</span>` : ''}
+        </div>
+      </div>
+      <div class="mt-3 flex justify-between items-baseline">
+        <div><span class="text-[10px] text-slate-500 uppercase block">Balance</span><span class="font-semibold text-sm text-slate-200">${formatPlainUSD(acc.balance)}</span></div>
+        <div class="text-right"><span class="text-[10px] text-slate-500 uppercase block">Today</span><span class="font-semibold text-sm ${pos ? 'text-emerald-400' : 'text-rose-400'}">${formatUSD(acc.today_profit)}</span></div>
+      </div>
       <div class="mt-2 w-full bg-slate-800 rounded-full h-1 overflow-hidden"><div class="h-1 rounded-full" style="width:${pct}%;background:${pos ? 'linear-gradient(90deg,#34d399,#22d3ee)' : 'linear-gradient(90deg,#fb7185,#f59e0b)'}"></div></div>
     </div>`;
   }).join('');
 }
 
-// 3. EA LIST (+ filter dropdown + bar chart)
+// 4. EAS LIST (+ Merge-by-name Bar Chart)
 async function fetchEAList() {
-  const dp = dateParams();
-  const d = await api('/eas' + (dp.length ? '?' + dp.join('&') : ''));
-  const all = d ? d.eas : applyRangeToEAs(MOCK_EAS);
+  const d = await api('/eas' + buildQueryParams());
+  const eas = d ? d.eas : [];
+  cachedEAs = eas;
+
   const sel = $('magicFilter'); const cur = sel.value;
   sel.innerHTML = '<option value="all">All EAs</option>';
-  all.forEach((e) => { const o = document.createElement('option'); o.value = e.magic_number; o.textContent = `${e.ea_name} (${e.magic_number})`; if (String(o.value) === cur) o.selected = true; sel.appendChild(o); });
-  updateHero('heroEAs', filterEAs(all).length);
-  renderBars(filterEAs(all));
+
+  eas.forEach((e) => {
+    const o = document.createElement('option');
+    o.value = e.ea_name; // Filter by merged name
+    const magicsStr = (e.magic_numbers || []).join(', ');
+    o.textContent = `${e.ea_name} (${magicsStr})`;
+    if (String(o.value) === String(cur)) o.selected = true;
+    sel.appendChild(o);
+  });
+
+  updateHero('heroEAs', eas.length);
+  renderBars(eas);
 }
 
 function renderBars(eas) {
-  const box = $('eaChart'); const max = Math.max(...eas.map((e) => Math.abs(e.total_pnl)), 1);
+  const box = $('eaChart');
+  if (!eas.length) { box.innerHTML = '<div class="text-center py-6 text-slate-500 text-sm">No EA activity recorded</div>'; return; }
+
+  const max = Math.max(...eas.map((e) => Math.abs(e.total_pnl)), 1);
   const sorted = [...eas].sort((a, b) => b.total_pnl - a.total_pnl);
+
   box.innerHTML = sorted.map((ea, i) => {
     const pct = (Math.abs(ea.total_pnl) / max) * 100; const pos = ea.total_pnl >= 0;
-    return `<div><div class="flex items-center justify-between text-xs mb-1"><span class="font-semibold text-slate-200">${ea.ea_name}</span><span class="font-mono font-bold ${pos ? 'text-emerald-400' : 'text-rose-400'}">${formatUSD(ea.total_pnl)}</span></div>
-      <div class="h-2.5 w-full rounded-full bg-slate-800/60 overflow-hidden"><div class="h-full rounded-full eq-bar" data-w="${pct}" style="transition-delay:${i * 90}ms;background:${pos ? 'linear-gradient(90deg,#22d3ee,#34d399)' : 'linear-gradient(90deg,#fb7185,#f59e0b)'};box-shadow:${pos ? '0 0 12px rgba(34,211,238,0.4)' : '0 0 12px rgba(251,113,133,0.4)'}"></div></div></div>`;
+    const magicsStr = (ea.magic_numbers || []).join(',');
+    return `<div class="group cursor-pointer" onclick="openRenameModal('${magicsStr}', '${ea.ea_name.replace(/'/g, "\\'")}', '${ea.color || '#3b82f6'}', '${(ea.description || '').replace(/'/g, "\\'")}')">
+      <div class="flex items-center justify-between text-xs mb-1">
+        <span class="font-semibold text-slate-200 group-hover:text-cyan-300 transition flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full" style="background:${ea.color || '#3b82f6'}"></span>
+          ${ea.ea_name}
+          <span class="text-[10px] font-mono text-slate-500">(${magicsStr})</span>
+        </span>
+        <span class="font-mono font-bold ${pos ? 'text-emerald-400' : 'text-rose-400'}">${formatUSD(ea.total_pnl)}</span>
+      </div>
+      <div class="h-2.5 w-full rounded-full bg-slate-800/60 overflow-hidden"><div class="h-full rounded-full eq-bar" data-w="${pct}" style="transition-delay:${i * 90}ms;background:${pos ? 'linear-gradient(90deg,#22d3ee,#34d399)' : 'linear-gradient(90deg,#fb7185,#f59e0b)'};box-shadow:${pos ? '0 0 12px rgba(34,211,238,0.4)' : '0 0 12px rgba(251,113,133,0.4)'}"></div></div>
+    </div>`;
   }).join('');
+
   requestAnimationFrame(() => box.querySelectorAll('.eq-bar').forEach((b) => { b.style.width = b.dataset.w + '%'; }));
 }
 
@@ -381,15 +434,18 @@ function renderDonut(wins, losses) {
   requestAnimationFrame(() => { const arc = $('donutArc'); if (arc) { arc.style.transition = 'stroke-dasharray 1.3s cubic-bezier(.22,1,.36,1)'; arc.setAttribute('stroke-dasharray', `${len} ${C}`); } });
 }
 
-// 4. EQUITY CURVE (custom SVG)
+// 5. EQUITY CURVE (Custom SVG)
 async function fetchEquity() {
-  const dp = dateParams();
-  const d = await api(`/charts/equity-curve?account=${currentAccount}&magic=${currentMagic}${dp.length ? '&' + dp.join('&') : ''}`);
-  const curve = d ? d.curve : mockCurve();
+  const d = await api('/charts/equity-curve' + buildQueryParams());
+  const curve = d ? d.curve : [];
   renderEquity(curve);
 }
 function renderEquity(curve) {
-  const box = $('equityChart'); if (!curve || !curve.length) { box.innerHTML = ''; return; }
+  const box = $('equityChart');
+  if (!curve || !curve.length) {
+    box.innerHTML = '<div class="text-center py-12 text-slate-500 text-sm">No trade history available for selected filter</div>';
+    return;
+  }
   const W = 1000, H = 400, padT = 24, padB = 28, padL = 8, padR = 8;
   const data = curve.map((p) => ({ t: new Date(p.time).getTime(), v: p.cumulative_profit }));
   const xs = data.map((d) => d.t), ys = data.map((d) => d.v);
@@ -440,61 +496,322 @@ function renderEquity(curve) {
   svg.addEventListener('mouseleave', () => { cross.style.display = 'none'; tip.style.display = 'none'; });
 }
 
-// 5. CALENDAR
+// 6. CALENDAR
 async function fetchCalendar() {
   const year = calendarDate.getFullYear(), month = calendarDate.getMonth() + 1;
-  const d = await api(`/calendar?year=${year}&month=${month}&account=${currentAccount}&magic=${currentMagic}`) || mockCalendar(year, month);
+  const d = await api(`/calendar${buildQueryParams()}&year=${year}&month=${month}`) || { month_total_pnl: 0, days: [] };
   const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
   $('calendarCurrentMonth').textContent = `${months[month - 1]} ${year}`;
   const mt = $('calendarMonthTotal'); mt.textContent = formatUSD(d.month_total_pnl); mt.className = `font-bold ${d.month_total_pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`;
+  
   const map = {}; d.days.forEach((x) => map[x.date] = x);
   const grid = $('calendarGrid'); grid.innerHTML = '';
   const firstDay = new Date(year, month - 1, 1).getDay(); const offset = firstDay === 0 ? 6 : firstDay - 1;
   const dim = new Date(year, month, 0).getDate(); const todayStr = new Date().toISOString().slice(0, 10);
+
   for (let i = 0; i < offset; i++) grid.innerHTML += '<div class="h-20 bg-slate-900/20 border border-white/5 rounded-xl opacity-20"></div>';
   for (let day = 1; day <= dim; day++) {
     const ds = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`; const dd = map[ds]; const isToday = ds === todayStr;
     if (dd) {
       const pos = dd.profit >= 0;
-      grid.innerHTML += `<div class="h-20 p-2 rounded-xl border transition-all duration-300 hover:scale-[1.06] flex flex-col justify-between ${pos ? 'bg-emerald-950/30 border-emerald-500/25 hover:border-emerald-400/50' : 'bg-rose-950/30 border-rose-500/25 hover:border-rose-400/50'} ${isToday ? 'ring-2 ring-cyan-400/60' : ''}"><div class="flex justify-between items-center"><span class="text-xs font-bold ${isToday ? 'text-cyan-400' : 'text-slate-400'}">${day}</span><span class="text-[9px] px-1.5 py-0.5 rounded-full font-mono ${pos ? 'bg-emerald-500/15 text-emerald-400' : 'bg-rose-500/15 text-rose-400'}">${dd.wins}W ${dd.losses}L</span></div><div class="text-right"><span class="text-xs sm:text-sm font-extrabold block ${pos ? 'text-emerald-400' : 'text-rose-400'}">${formatUSD(dd.profit)}</span><span class="text-[9px] text-slate-500">${dd.trades_count}t</span></div></div>`;
+      grid.innerHTML += `<div class="h-20 p-2 rounded-xl border transition-all duration-300 hover:scale-[1.06] flex flex-col justify-between ${pos ? 'bg-emerald-950/30 border-emerald-500/25 hover:border-emerald-400/50' : 'bg-rose-950/30 border-rose-500/25 hover:border-rose-400/50'} ${isToday ? 'ring-2 ring-cyan-400/60' : ''}">
+        <div class="flex justify-between items-center"><span class="text-xs font-bold ${isToday ? 'text-cyan-400' : 'text-slate-400'}">${day}</span><span class="text-[9px] px-1.5 py-0.5 rounded-full font-mono ${pos ? 'bg-emerald-500/15 text-emerald-400' : 'bg-rose-500/15 text-rose-400'}">${dd.wins}W ${dd.losses}L</span></div>
+        <div class="text-right"><span class="text-xs sm:text-sm font-extrabold block ${pos ? 'text-emerald-400' : 'text-rose-400'}">${formatUSD(dd.profit)}</span><span class="text-[9px] text-slate-500">${dd.trades_count}t</span></div>
+      </div>`;
     } else {
       grid.innerHTML += `<div class="h-20 p-2 rounded-xl bg-slate-900/25 border border-white/5 flex flex-col justify-between ${isToday ? 'ring-2 ring-cyan-400/60' : ''}"><span class="text-xs ${isToday ? 'text-cyan-400 font-bold' : 'text-slate-600'}">${day}</span><span class="text-[11px] text-slate-700 text-right">—</span></div>`;
     }
   }
 }
 function changeMonth(delta) { calendarDate.setMonth(calendarDate.getMonth() + delta); fetchCalendar(); }
+window.changeMonth = changeMonth;
 
-// 6. OPEN POSITIONS
+// 7. OPEN POSITIONS
 async function fetchPositions() {
-  const d = await api(`/open-positions?account=${currentAccount}&magic=${currentMagic}`);
-  const positions = d ? d.positions : filterPositions(mockPositions());
+  const d = await api('/open-positions' + buildQueryParams());
+  const positions = d ? d.positions : [];
   $('liveOpenBadge').textContent = `${positions.length} Active`;
   const tb = $('openPositionsTable');
   if (!positions.length) { tb.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-slate-600">No active floating positions</td></tr>'; return; }
   tb.innerHTML = positions.map((p) => {
     const net = p.profit + p.swap;
-    return `<tr class="hover:bg-white/5 transition-colors"><td class="p-2.5"><span class="font-semibold text-white">${p.ea_name}</span><br><span class="text-[10px] text-slate-500">#${p.account_number}</span></td><td class="p-2.5 font-bold text-slate-200">${p.symbol}</td><td class="p-2.5"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${p.trade_type === 'BUY' ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/25' : 'bg-amber-500/15 text-amber-400 border border-amber-500/25'}">${p.trade_type}</span></td><td class="p-2.5 font-mono text-slate-300">${p.volume}</td><td class="p-2.5 font-mono text-slate-300">${p.open_price}</td><td class="p-2.5 text-right font-mono font-bold ${net >= 0 ? 'text-emerald-400' : 'text-rose-400'}">${formatUSD(net)}</td></tr>`;
+    return `<tr class="hover:bg-white/5 transition-colors">
+      <td class="p-2.5"><span class="font-semibold text-white">${p.ea_name}</span><br><span class="text-[10px] text-slate-500 font-mono">#${p.account_number}</span></td>
+      <td class="p-2.5 font-bold text-slate-200">${p.symbol}</td>
+      <td class="p-2.5"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${p.trade_type === 'BUY' ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/25' : 'bg-amber-500/15 text-amber-400 border border-amber-500/25'}">${p.trade_type}</span></td>
+      <td class="p-2.5 font-mono text-slate-300">${p.volume}</td>
+      <td class="p-2.5 font-mono text-slate-300">${p.open_price}</td>
+      <td class="p-2.5 text-right font-mono font-bold ${net >= 0 ? 'text-emerald-400' : 'text-rose-400'}">${formatUSD(net)}</td>
+    </tr>`;
   }).join('');
 }
 
-// 7. LEADERBOARD
+// 8. ACTIVE PENDING ORDERS (NEW)
+async function fetchPendingOrders() {
+  const d = await api('/pending-orders' + buildQueryParams());
+  const orders = d ? d.orders : [];
+  $('pendingOrdersBadge').textContent = `${orders.length} Pending`;
+  const tb = $('pendingOrdersTable');
+  if (!orders.length) { tb.innerHTML = '<tr><td colspan="8" class="text-center py-8 text-slate-600">No active pending orders</td></tr>'; return; }
+
+  tb.innerHTML = orders.map((o) => {
+    let typeBadgeClass = 'bg-blue-500/15 text-blue-400 border-blue-500/25';
+    if (o.order_type.includes('SELL')) typeBadgeClass = 'bg-rose-500/15 text-rose-400 border-rose-500/25';
+    if (o.order_type.includes('STOP')) typeBadgeClass = 'bg-violet-500/15 text-violet-400 border-violet-500/25';
+
+    const slStr = o.sl > 0 ? o.sl.toFixed(2) : '-';
+    const tpStr = o.tp > 0 ? o.tp.toFixed(2) : '-';
+
+    return `<tr class="hover:bg-white/5 transition-colors">
+      <td class="p-2.5"><span class="font-semibold text-white">${o.ea_name}</span><br><span class="text-[10px] text-slate-500 font-mono">#${o.account_number}</span></td>
+      <td class="p-2.5 font-bold text-slate-200">${o.symbol}</td>
+      <td class="p-2.5"><span class="px-2 py-0.5 rounded text-[10px] font-bold border ${typeBadgeClass}">${o.order_type}</span></td>
+      <td class="p-2.5 font-mono text-slate-300">${o.volume}</td>
+      <td class="p-2.5 font-mono text-cyan-300 font-semibold">${o.price_open}</td>
+      <td class="p-2.5 font-mono text-slate-400">${o.price_current}</td>
+      <td class="p-2.5 font-mono text-[11px] text-slate-400">${slStr} / ${tpStr}</td>
+      <td class="p-2.5 text-right font-mono text-[11px] text-slate-400">${o.setup_time.slice(5, 16)}</td>
+    </tr>`;
+  }).join('');
+}
+
+// 9. LEADERBOARD
 async function fetchLeaderboard() {
-  const dp = dateParams();
-  const d = await api('/eas' + (dp.length ? '?' + dp.join('&') : ''));
-  const eas = filterEAs(d ? d.eas : applyRangeToEAs(MOCK_EAS));
+  const d = await api('/eas' + buildQueryParams());
+  const eas = d ? d.eas : [];
   const tb = $('eaLeaderboardBody');
-  if (!eas.length) { tb.innerHTML = '<tr><td colspan="8" class="text-center py-8 text-slate-600">No EA data available yet</td></tr>'; return; }
-  const sorted = [...eas].sort((a, b) => b.total_pnl - a.total_pnl); const medal = ['🥇', '🥈', '🥉'];
+  if (!eas.length) { tb.innerHTML = '<tr><td colspan="8" class="text-center py-8 text-slate-600">No EA performance data available</td></tr>'; return; }
+
+  const sorted = [...eas].sort((a, b) => b.total_pnl - a.total_pnl);
+  const medal = ['🥇', '🥈', '🥉'];
+
   tb.innerHTML = sorted.map((ea, i) => {
     const wr = ea.total_trades > 0 ? ((ea.wins / ea.total_trades) * 100).toFixed(1) : '0.0';
     const avg = ea.total_trades > 0 ? ea.total_pnl / ea.total_trades : 0; const pos = ea.total_pnl >= 0;
-    return `<tr class="hover:bg-white/5 transition-colors"><td class="p-3 text-center text-base">${i < 3 ? medal[i] : '<span class="text-slate-500 font-mono text-sm">#' + (i + 1) + '</span>'}</td>
-      <td class="p-3"><div class="flex items-center gap-3"><span class="w-3 h-3 rounded-full" style="background:${ea.color};box-shadow:0 0 10px ${ea.color}88"></span><div><span class="font-bold text-white text-sm">${ea.ea_name}</span><br><span class="text-[10px] text-slate-500 font-mono">Magic: ${ea.magic_number}</span></div></div></td>
+    const magicsStr = (ea.magic_numbers || []).join(',');
+
+    return `<tr class="hover:bg-white/5 transition-colors cursor-pointer group" onclick="openRenameModal('${magicsStr}', '${ea.ea_name.replace(/'/g, "\\'")}', '${ea.color || '#3b82f6'}', '${(ea.description || '').replace(/'/g, "\\'")}')">
+      <td class="p-3 text-center text-base">${i < 3 ? medal[i] : '<span class="text-slate-500 font-mono text-sm">#' + (i + 1) + '</span>'}</td>
+      <td class="p-3">
+        <div class="flex items-center gap-3">
+          <span class="w-3 h-3 rounded-full flex-shrink-0" style="background:${ea.color};box-shadow:0 0 10px ${ea.color}88"></span>
+          <div>
+            <span class="font-bold text-white text-sm group-hover:text-cyan-300 transition">${ea.ea_name}</span>
+            <br>
+            <span class="text-[10px] text-slate-500 font-mono">Magic(s): ${magicsStr}</span>
+          </div>
+        </div>
+      </td>
       <td class="p-3 text-right font-mono font-bold ${pos ? 'text-emerald-400' : 'text-rose-400'}">${formatUSD(ea.total_pnl)}</td>
       <td class="p-3 text-center font-mono text-slate-300">${ea.total_trades}</td>
       <td class="p-3 text-center"><span class="text-emerald-400 font-semibold">${ea.wins}</span><span class="text-slate-600 mx-1">/</span><span class="text-rose-400 font-semibold">${ea.losses}</span></td>
       <td class="p-3"><div class="flex items-center justify-center gap-2"><div class="w-16 bg-slate-800 rounded-full h-2 overflow-hidden"><div class="h-2 rounded-full" style="width:${wr}%;background:${Number(wr) >= 50 ? 'linear-gradient(90deg,#34d399,#22d3ee)' : 'linear-gradient(90deg,#fb7185,#f59e0b)'}"></div></div><span class="text-xs font-bold ${Number(wr) >= 50 ? 'text-emerald-400' : 'text-rose-400'}">${wr}%</span></div></td>
       <td class="p-3 text-right font-mono text-xs ${avg >= 0 ? 'text-emerald-400' : 'text-rose-400'}">${formatUSD(avg)}</td>
-      <td class="p-3 text-right font-mono text-xs ${ea.open_pnl >= 0 ? 'text-cyan-400' : 'text-rose-400'}">${formatUSD(ea.open_pnl)}</td></tr>`;
+      <td class="p-3 text-right font-mono text-xs ${ea.open_pnl >= 0 ? 'text-cyan-400' : 'text-rose-400'}">${formatUSD(ea.open_pnl)}</td>
+    </tr>`;
   }).join('');
 }
+
+
+// ═══════════════════════════════════════════════════════════════
+// ⚙️ 2. MODALS & CONFIGURATION LOGIC
+// ═══════════════════════════════════════════════════════════════
+
+function setupModals() {
+  // 1. EA RENAME MODAL
+  $('renameColorInput').addEventListener('input', (e) => { $('renameColorHex').textContent = e.target.value; });
+  $('saveEaRenameBtn').addEventListener('click', async () => {
+    const rawMagics = $('renameMagicInput').value;
+    const ea_name = $('renameEaNameInput').value.trim();
+    const color = $('renameColorInput').value;
+    const description = $('renameDescInput').value.trim();
+
+    if (!rawMagics || !ea_name) {
+      alert('Please enter magic number(s) and a display name.');
+      return;
+    }
+
+    const magic_numbers = rawMagics.split(',').map(s => Number(s.trim())).filter(n => !isNaN(n) && n > 0);
+    if (!magic_numbers.length) {
+      alert('Please enter valid numeric magic number(s).');
+      return;
+    }
+
+    const res = await api('/ea-registry/rename', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ magic_numbers, ea_name, color, description })
+    });
+
+    if (res && res.success) {
+      closeModal('eaRenameModal');
+      await refreshDashboard();
+    } else {
+      alert(res ? res.error : 'Failed to save EA configuration');
+    }
+  });
+
+  // 2. PROFILE MANAGER MODAL
+  $('manageProfilesBtn').addEventListener('click', () => {
+    populateProfileManager();
+    openModal('profileManagerModal');
+  });
+
+  $('createProfileBtn').addEventListener('click', async () => {
+    const name = $('newProfileName').value.trim();
+    if (!name) { alert('Please enter a profile name'); return; }
+
+    const checkedBoxes = document.querySelectorAll('.profile-acc-check:checked');
+    const account_numbers = Array.from(checkedBoxes).map(cb => cb.value).join(',');
+
+    const res = await api('/profiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, account_numbers })
+    });
+
+    if (res && res.success) {
+      $('newProfileName').value = '';
+      populateProfileManager();
+      await fetchProfilesList();
+    } else {
+      alert(res ? res.error : 'Failed to create profile');
+    }
+  });
+
+  // 3. SHARE MODAL
+  $('openShareModalBtn').addEventListener('click', () => {
+    populateShareModal();
+    openModal('shareModal');
+  });
+
+  document.querySelectorAll('input[name="shareDateType"]').forEach(r => {
+    r.addEventListener('change', (e) => {
+      const isSpecific = e.target.value === 'specific';
+      $('shareStartDateInput').classList.toggle('hidden', !isSpecific);
+      if (isSpecific && !$('shareStartDateInput').value) {
+        const d = new Date(); d.setDate(d.getDate() - 30);
+        $('shareStartDateInput').value = toYMD(d);
+      }
+    });
+  });
+
+  $('generateShareBtn').addEventListener('click', async () => {
+    const profile_id = $('shareProfileSelect').value;
+    const isSpecific = document.querySelector('input[name="shareDateType"]:checked').value === 'specific';
+    const from_date = isSpecific ? $('shareStartDateInput').value : null;
+    const label = $('shareLabelInput').value.trim();
+
+    const res = await api('/share', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile_id, from_date, label })
+    });
+
+    if (res && res.success) {
+      const fullUrl = window.location.origin + res.share_url;
+      $('shareUrlOutput').value = fullUrl;
+      $('generatedLinkBox').classList.remove('hidden');
+      loadActiveShareLinks();
+    } else {
+      alert(res ? res.error : 'Failed to generate link');
+    }
+  });
+
+  $('copyShareBtn').addEventListener('click', () => {
+    const out = $('shareUrlOutput');
+    out.select();
+    navigator.clipboard.writeText(out.value);
+    $('copyShareBtn').textContent = 'Copied!';
+    setTimeout(() => { $('copyShareBtn').textContent = 'Copy Link'; }, 2000);
+  });
+}
+
+// ─── MODAL OPEN HANDLERS ───
+function openRenameModal(magics, name, color, desc) {
+  if (isSharedMode) return; // Disallow editing in shared mode
+  $('renameMagicInput').value = magics || '';
+  $('renameEaNameInput').value = name || '';
+  $('renameColorInput').value = color || '#3b82f6';
+  $('renameColorHex').textContent = color || '#3b82f6';
+  $('renameDescInput').value = desc || '';
+  openModal('eaRenameModal');
+}
+window.openRenameModal = openRenameModal;
+
+function populateProfileManager() {
+  // Render Account checkboxes
+  const cbContainer = $('profileAccountsCheckboxList');
+  cbContainer.innerHTML = cachedAccounts.map(a => `
+    <label class="flex items-center gap-2 text-slate-300 hover:text-white cursor-pointer select-none">
+      <input type="checkbox" value="${a.account_number}" class="profile-acc-check rounded border-white/20 bg-slate-900 text-amber-500 focus:ring-0" />
+      <span>${a.account_name || a.broker} (#${a.account_number})</span>
+    </label>
+  `).join('');
+
+  // Render Existing Profiles list
+  const list = $('existingProfilesList');
+  list.innerHTML = cachedProfiles.map(p => {
+    const isAll = p.slug === 'all';
+    const accCount = p.account_numbers ? p.account_numbers.split(',').length : 'All';
+    return `<div class="flex items-center justify-between p-2.5 rounded-lg bg-slate-950 border border-white/5">
+      <div>
+        <span class="font-bold text-white">${p.name}</span>
+        <span class="text-[11px] text-slate-500 ml-2 font-mono">(${accCount} Accounts)</span>
+      </div>
+      ${!isAll ? `<button onclick="deleteProfile(${p.id})" class="text-rose-400 hover:text-rose-300 text-xs px-2 py-1 rounded bg-rose-500/10 hover:bg-rose-500/20 transition">Delete</button>` : '<span class="text-[10px] text-slate-600 font-mono">Default</span>'}
+    </div>`;
+  }).join('');
+}
+
+async function deleteProfile(id) {
+  if (!confirm('Are you sure you want to delete this profile?')) return;
+  const res = await api(`/profiles/${id}`, { method: 'DELETE' });
+  if (res && res.success) {
+    populateProfileManager();
+    await fetchProfilesList();
+  } else {
+    alert(res ? res.error : 'Failed to delete');
+  }
+}
+window.deleteProfile = deleteProfile;
+
+function populateShareModal() {
+  $('generatedLinkBox').classList.add('hidden');
+  const sel = $('shareProfileSelect');
+  sel.innerHTML = cachedProfiles.map(p => `<option value="${p.id}">${p.name} (${p.account_numbers ? p.account_numbers.split(',').length + ' accounts' : 'All Accounts'})</option>`).join('');
+  loadActiveShareLinks();
+}
+
+async function loadActiveShareLinks() {
+  const d = await api('/share/list');
+  const list = $('activeShareLinksList');
+  if (!d || !d.links || !d.links.length) {
+    list.innerHTML = '<div class="text-slate-600 text-xs py-2">No active share links created yet.</div>';
+    return;
+  }
+
+  list.innerHTML = d.links.map(l => {
+    const fullUrl = `${window.location.origin}/?share=${l.token}`;
+    const dateScope = l.from_date ? `from ${l.from_date}` : 'All past data';
+    return `<div class="flex items-center justify-between p-2.5 rounded-lg bg-slate-950 border border-white/5 text-xs">
+      <div>
+        <div class="font-bold text-cyan-300">${l.label || l.profile_name}</div>
+        <div class="text-[11px] text-slate-500">Profile: <strong class="text-slate-400">${l.profile_name}</strong> • ${dateScope}</div>
+      </div>
+      <div class="flex items-center gap-2">
+        <button onclick="navigator.clipboard.writeText('${fullUrl}');alert('Link copied!')" class="text-xs px-2.5 py-1 rounded bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 transition">Copy</button>
+        <button onclick="revokeShareLink('${l.token}')" class="text-xs px-2.5 py-1 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition">Revoke</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function revokeShareLink(token) {
+  if (!confirm('Revoke this share link immediately?')) return;
+  const res = await api(`/share/${token}`, { method: 'DELETE' });
+  if (res && res.success) {
+    loadActiveShareLinks();
+  }
+}
+window.revokeShareLink = revokeShareLink;
