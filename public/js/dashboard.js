@@ -218,6 +218,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (chip && !isShare()) openEANames(Number(chip.dataset.magic));
   });
   initRangeFilter();
+  initDDMode();
   setTimeout(() => $('loader').classList.add('hidden'), 1200);
   await boot();
 });
@@ -252,7 +253,7 @@ async function refreshDashboard(spin = false) {
   refreshing = true;
   if (spin) { const ic = $('refreshIcon'); ic.classList.add('spin-once'); setTimeout(() => ic.classList.remove('spin-once'), 700); }
   try {
-    await Promise.all([fetchAccountsList(), fetchEAList(), fetchOverview(), fetchEquity(), fetchCalendar(), fetchPositions(), fetchPendingOrders()]);
+    await Promise.all([fetchAccountsList(), fetchEAList(), fetchOverview(), fetchEquity(), fetchDrawdown(), fetchCalendar(), fetchPositions(), fetchPendingOrders()]);
     $('lastUpdated').textContent = new Date().toLocaleTimeString();
     $('dataMode').textContent = isShare() ? 'Shared read-only view' : 'Cloud Sync';
     lucide.createIcons();
@@ -388,64 +389,166 @@ function renderDonut(wins, losses) {
   requestAnimationFrame(() => { const arc = $('donutArc'); if (arc) { arc.style.transition = 'stroke-dasharray 1.3s cubic-bezier(.22,1,.36,1)'; arc.setAttribute('stroke-dasharray', `${len} ${C}`); } });
 }
 
-// 4. EQUITY CURVE (custom SVG)
+// 4. GROWTH CURVE — balance step-line on a true time axis + underwater strip (custom SVG)
+let eqData = null;
+let ddMode = 'usd';
+const parseT = (s) => new Date(String(s).replace(' ', 'T')).getTime();
+const fmtDay = (t) => new Date(t).toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
+const fmtStamp = (t) => new Date(t).toLocaleString('en-US', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+
 async function fetchEquity() {
   const dp = dateParams();
   const d = await api(`/charts/equity-curve?${filterQS()}${dp.length ? '&' + dp.join('&') : ''}`);
-  if (d) renderEquity(d.curve);
+  if (d) { eqData = d; renderEquity(); }
 }
-function renderEquity(curve) {
-  const box = $('equityChart');
-  if (!curve || !curve.length) { box.innerHTML = '<div class="h-[200px] flex items-center justify-center text-slate-600 text-sm">No closed trades in this range</div>'; return; }
-  if (curve.length === 1) curve = [{ time: curve[0].time, cumulative_profit: 0 }, curve[0]];
-  const W = 1000, H = 400, padT = 24, padB = 28, padL = 8, padR = 8;
-  const data = curve.map((p) => ({ t: new Date(String(p.time).replace(' ', 'T')).getTime(), v: p.cumulative_profit }));
-  const xs = data.map((d) => d.t), ys = data.map((d) => d.v);
-  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys, 0), maxY = Math.max(...ys);
+
+function initDDMode() {
+  const sync = () => document.querySelectorAll('.dd-mode').forEach((b) => b.classList.toggle('active', b.dataset.mode === ddMode));
+  document.querySelectorAll('.dd-mode').forEach((b) => b.addEventListener('click', () => { ddMode = b.dataset.mode; sync(); renderEquity(true); }));
+  sync();
+}
+
+const stepPath = (pts) => pts.reduce((acc, p, i) => acc + (i ? ` H ${p.x} V ${p.y}` : `M ${p.x},${p.y}`), '');
+
+function renderEquity(noAnim = false) {
+  const box = $('equityChart'), uw = $('underwaterChart');
+  const d = eqData;
+  if (!d || !d.curve || !d.curve.length) {
+    box.innerHTML = '<div class="h-[200px] flex items-center justify-center text-slate-600 text-sm">No closed trades in this range</div>';
+    uw.innerHTML = ''; return;
+  }
+  const start = Number(d.start_balance) || 0;
+  const t0 = parseT(d.curve[0].time);
+  const data = [{ t: t0 - 1000, v: start, c: 0, dd: 0, ddp: 0, p: 0, start: true }]
+    .concat(d.curve.map((p) => ({ t: parseT(p.time), v: p.balance, c: p.cumulative_profit, dd: p.dd, ddp: p.dd_pct, p: p.profit })));
+  const anim = firstLoad && !noAnim;
+  const W = 1000, H = 360, padT = 20, padB = 26, padL = 8, padR = 8;
+  const UH = 120, uPadT = 6, uPadB = 18;
+  const xs = data.map((p) => p.t), ys = data.map((p) => p.v);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  let minY = Math.min(...ys), maxY = Math.max(...ys);
+  const padY = (maxY - minY || Math.abs(maxY) || 1) * 0.06; minY -= padY; maxY += padY;
   const sx = (x) => padL + ((x - minX) / (maxX - minX || 1)) * (W - padL - padR);
   const sy = (y) => padT + (1 - (y - minY) / (maxY - minY || 1)) * (H - padT - padB);
-  const pts = data.map((d) => ({ x: sx(d.t), y: sy(d.v), v: d.v, t: d.t }));
-  let line = `M ${pts[0].x},${pts[0].y}`;
-  for (let i = 0; i < pts.length - 1; i++) {
-    const p0 = pts[i - 1] || pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] || p2;
-    line += ` C ${p1.x + (p2.x - p0.x) / 6},${p1.y + (p2.y - p0.y) / 6} ${p2.x - (p3.x - p1.x) / 6},${p2.y - (p3.y - p1.y) / 6} ${p2.x},${p2.y}`;
-  }
-  const area = `${line} L ${pts[pts.length - 1].x},${H - padB} L ${pts[0].x},${H - padB} Z`;
+  const pts = data.map((p) => ({ ...p, x: sx(p.t), y: sy(p.v) }));
+  const line = stepPath(pts);
+  const last = pts[pts.length - 1];
+  const area = `${line} H ${last.x} V ${H - padB} H ${pts[0].x} Z`;
   let peak = 0, valley = 0; pts.forEach((p, i) => { if (p.v > pts[peak].v) peak = i; if (p.v < pts[valley].v) valley = i; });
-  const zeroY = sy(0);
-  let grid = ''; for (let i = 0; i <= 4; i++) { const val = minY + (maxY - minY) * i / 4; const y = sy(val); grid += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="rgba(148,163,184,0.08)" stroke-dasharray="5 6"/>`; }
-  let labels = ''; for (let i = 0; i <= 4; i++) { const val = minY + (maxY - minY) * i / 4; labels += `<span class="absolute left-1 text-[10px] font-mono text-slate-500" style="top:${(sy(val) / H) * 100}%;transform:translateY(-50%)">${compact(val)}</span>`; }
+
+  let grid = '', labels = '';
+  for (let i = 0; i <= 4; i++) {
+    const val = minY + (maxY - minY) * i / 4; const y = sy(val);
+    grid += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="rgba(148,163,184,0.08)" stroke-dasharray="5 6"/>`;
+    labels += `<span class="absolute left-1 text-[10px] font-mono text-slate-500" style="top:${(y / H) * 100}%;transform:translateY(-50%)">${compact(val)}</span>`;
+  }
+  let xLabels = '';
+  if (maxX > minX) for (let i = 0; i <= 4; i++) {
+    const t = minX + (maxX - minX) * i / 4;
+    xLabels += `<span class="absolute bottom-0 text-[10px] font-mono text-slate-500" style="left:${(sx(t) / W) * 100}%;transform:translateX(${i === 0 ? '0' : i === 4 ? '-100%' : '-50%'})">${fmtDay(t)}</span>`;
+  }
+  let zone = '';
+  const dd = d.drawdown || {};
+  if (dd.peak_time && dd.trough_time) {
+    const x1 = Math.max(padL, sx(parseT(dd.peak_time))), x2 = Math.min(W - padR, sx(parseT(dd.trough_time)));
+    if (x2 > x1) zone = `<rect x="${x1}" y="${padT}" width="${x2 - x1}" height="${H - padT - padB}" fill="#fb7185" fill-opacity="0.08"/><line x1="${x1}" y1="${padT}" x2="${x1}" y2="${H - padB}" stroke="rgba(251,113,133,0.35)" stroke-dasharray="3 4"/><line x1="${x2}" y1="${padT}" x2="${x2}" y2="${H - padB}" stroke="rgba(251,113,133,0.35)" stroke-dasharray="3 4"/>`;
+  }
+  const startY = sy(start);
 
   box.innerHTML = `
-    <svg id="eqSvg" viewBox="0 0 ${W} ${H}" class="w-full h-[400px]" preserveAspectRatio="none">
+    <svg id="eqSvg" viewBox="0 0 ${W} ${H}" class="w-full h-[360px]" preserveAspectRatio="none" data-testid="growth-curve-svg">
       <defs>
-        <linearGradient id="eqFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#22d3ee" stop-opacity="0.45"/><stop offset="45%" stop-color="#a855f7" stop-opacity="0.16"/><stop offset="100%" stop-color="#7c3aed" stop-opacity="0"/></linearGradient>
+        <linearGradient id="eqFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#22d3ee" stop-opacity="0.32"/><stop offset="45%" stop-color="#a855f7" stop-opacity="0.12"/><stop offset="100%" stop-color="#7c3aed" stop-opacity="0"/></linearGradient>
         <linearGradient id="eqStroke" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#22d3ee"/><stop offset="100%" stop-color="#a855f7"/></linearGradient>
-        <filter id="eqGlow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        <filter id="eqGlow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
       </defs>
       ${grid}
-      <line x1="${padL}" y1="${zeroY}" x2="${W - padR}" y2="${zeroY}" stroke="rgba(100,116,139,0.5)" stroke-dasharray="4 5"/>
-      <path d="${area}" fill="url(#eqFill)" class="${firstLoad ? 'eq-area' : ''}"/>
-      <path d="${line}" fill="none" stroke="url(#eqStroke)" stroke-width="3" stroke-linecap="round" filter="url(#eqGlow)" class="${firstLoad ? 'eq-line' : ''}"/>
+      ${zone}
+      <line x1="${padL}" y1="${startY}" x2="${W - padR}" y2="${startY}" stroke="rgba(100,116,139,0.55)" stroke-dasharray="4 5"/>
+      <path d="${area}" fill="url(#eqFill)" class="${anim ? 'eq-area' : ''}"/>
+      <path d="${line}" pathLength="4000" fill="none" stroke="url(#eqStroke)" stroke-width="2" stroke-linejoin="round" filter="url(#eqGlow)" class="${anim ? 'eq-line' : ''}"/>
       <circle cx="${pts[peak].x}" cy="${pts[peak].y}" r="5" fill="#34d399" stroke="#05070f" stroke-width="2"/>
       <circle cx="${pts[valley].x}" cy="${pts[valley].y}" r="5" fill="#fb7185" stroke="#05070f" stroke-width="2"/>
-      <circle cx="${pts[pts.length - 1].x}" cy="${pts[pts.length - 1].y}" r="6" fill="#22d3ee" stroke="#05070f" stroke-width="2" class="pulse-dot"/>
+      <circle cx="${last.x}" cy="${last.y}" r="6" fill="#22d3ee" stroke="#05070f" stroke-width="2" class="pulse-dot"/>
       <g id="eqCross" style="display:none"><line id="eqCrossLine" y1="${padT}" y2="${H - padB}" stroke="rgba(34,211,238,0.4)" stroke-dasharray="3 3"/><circle id="eqCrossDot" r="5" fill="#fff" stroke="#22d3ee" stroke-width="2"/></g>
     </svg>
-    <div class="absolute inset-0 pointer-events-none">${labels}</div>
-    <div id="eqTip" class="eq-tooltip" style="display:none"></div>`;
+    <div class="absolute inset-0 pointer-events-none">${labels}${xLabels}</div>
+    <div id="eqTip" class="eq-tooltip" style="display:none" data-testid="growth-curve-tooltip"></div>`;
 
-  const svg = $('eqSvg'); const cross = $('eqCross'); const tip = $('eqTip');
-  svg.addEventListener('mousemove', (e) => {
-    const rect = svg.getBoundingClientRect(); const relX = ((e.clientX - rect.left) / rect.width) * W;
-    let n = 0, dist = Infinity; pts.forEach((p, i) => { const dd = Math.abs(p.x - relX); if (dd < dist) { dist = dd; n = i; } });
+  // Underwater strip
+  const key = ddMode === 'usd' ? 'dd' : 'ddp';
+  const minU = Math.min(...data.map((p) => -p[key]), -0.01);
+  const uy = (v) => uPadT + (v / minU) * (UH - uPadT - uPadB);
+  const upts = data.map((p) => ({ x: sx(p.t), y: uy(-p[key]) }));
+  const uline = stepPath(upts);
+  const uarea = `${uline} H ${upts[upts.length - 1].x} V ${uy(0)} H ${upts[0].x} Z`;
+  const ufmt = (v) => (ddMode === 'usd' ? '-' + compact(Math.abs(v)) : v.toFixed(1) + '%');
+  uw.innerHTML = `
+    <svg id="uwSvg" viewBox="0 0 ${W} ${UH}" class="w-full h-[120px]" preserveAspectRatio="none">
+      <line x1="${padL}" y1="${uy(0)}" x2="${W - padR}" y2="${uy(0)}" stroke="rgba(100,116,139,0.45)" stroke-dasharray="4 5"/>
+      <line x1="${padL}" y1="${uy(minU / 2)}" x2="${W - padR}" y2="${uy(minU / 2)}" stroke="rgba(148,163,184,0.08)" stroke-dasharray="5 6"/>
+      <path d="${uarea}" fill="#fb7185" fill-opacity="0.18"/>
+      <path d="${uline}" fill="none" stroke="#fb7185" stroke-width="1.4" stroke-linejoin="round"/>
+      <line id="uwCross" y1="${uPadT}" y2="${UH - uPadB}" stroke="rgba(34,211,238,0.4)" stroke-dasharray="3 3" style="display:none"/>
+    </svg>
+    <div class="absolute inset-0 pointer-events-none">
+      <span class="absolute left-1 text-[10px] font-mono text-slate-500" style="top:${(uy(0) / UH) * 100}%;transform:translateY(-50%)">0</span>
+      <span class="absolute left-1 text-[10px] font-mono text-rose-300/70" style="top:${(uy(minU) / UH) * 100}%;transform:translateY(-50%)">${ufmt(minU)}</span>
+    </div>`;
+
+  const tip = $('eqTip');
+  const show = (e, svgEl) => {
+    const rect = svgEl.getBoundingClientRect(); const relX = ((e.clientX - rect.left) / rect.width) * W;
+    let n = 0, dist = Infinity; pts.forEach((p, i) => { const dx = Math.abs(p.x - relX); if (dx < dist) { dist = dx; n = i; } });
     const p = pts[n];
-    cross.style.display = ''; $('eqCrossLine').setAttribute('x1', p.x); $('eqCrossLine').setAttribute('x2', p.x);
+    $('eqCross').style.display = ''; $('eqCrossLine').setAttribute('x1', p.x); $('eqCrossLine').setAttribute('x2', p.x);
     $('eqCrossDot').setAttribute('cx', p.x); $('eqCrossDot').setAttribute('cy', p.y);
-    tip.style.display = ''; tip.style.left = (p.x / W) * 100 + '%'; tip.style.top = (p.y / H) * 100 + '%'; tip.style.marginTop = '-14px';
-    tip.innerHTML = `<div class="box"><div class="text-[10px] text-slate-400">${new Date(p.t).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}</div><div class="text-[10px] uppercase tracking-wider text-slate-500">Cumulative P&amp;L</div><div class="text-base font-extrabold ${p.v >= 0 ? 'text-cyan-300' : 'text-rose-400'}">${formatUSD(p.v)}</div></div>`;
-  });
-  svg.addEventListener('mouseleave', () => { cross.style.display = 'none'; tip.style.display = 'none'; });
+    const uc = $('uwCross'); uc.style.display = ''; uc.setAttribute('x1', p.x); uc.setAttribute('x2', p.x);
+    tip.style.display = ''; tip.style.left = Math.min(Math.max((p.x / W) * 100, 8), 92) + '%'; tip.style.top = (p.y / H) * 100 + '%'; tip.style.marginTop = '-14px';
+    tip.innerHTML = `<div class="box"><div class="text-[10px] text-slate-400">${p.start ? 'Starting balance' : fmtStamp(p.t)}</div>
+      <div class="text-[10px] uppercase tracking-wider text-slate-500">Balance</div><div class="text-base font-extrabold text-cyan-300">${formatPlainUSD(p.v)}</div>
+      ${p.start ? '' : `<div class="text-[11px] text-slate-400">Trade <span class="${p.p >= 0 ? 'text-emerald-400' : 'text-rose-400'}">${formatUSD(p.p)}</span> • Cum <span class="${p.c >= 0 ? 'text-emerald-400' : 'text-rose-400'}">${formatUSD(p.c)}</span></div>
+      <div class="text-[11px] text-rose-300">DD ${formatPlainUSD(p.dd)} (${Number(p.ddp).toFixed(2)}%)</div>`}</div>`;
+  };
+  const hide = () => { $('eqCross').style.display = 'none'; $('uwCross').style.display = 'none'; tip.style.display = 'none'; };
+  [$('eqSvg'), $('uwSvg')].forEach((el) => { el.addEventListener('mousemove', (e) => show(e, el)); el.addEventListener('mouseleave', hide); });
+}
+
+// 4b. DRAWDOWN — KPI card + live per-EA table
+const ddAmt = (v) => (Number(v) > 0 ? '-' : '') + formatPlainUSD(v);
+const ddPct = (v) => (Number(v) > 0 ? '-' : '') + Number(v || 0).toFixed(2) + '%';
+
+async function fetchDrawdown() {
+  const dp = dateParams();
+  const d = await api(`/drawdown?${filterQS()}${dp.length ? '&' + dp.join('&') : ''}`);
+  if (!d) return;
+  const o = d.overall;
+  const set = (id, t) => { const e = $(id); if (e) e.textContent = t; };
+  set('ddEquity', ddAmt(o.equity.max_dd)); set('ddEquityPct', ddPct(o.equity.max_dd_pct));
+  set('ddBalance', ddAmt(o.balance.max_dd)); set('ddBalancePct', ddPct(o.balance.max_dd_pct));
+  set('ddCurrent', ddAmt(o.equity.current_dd)); set('ddCurrentPct', ddPct(o.equity.current_dd_pct));
+  renderDrawdownTable(d.eas);
+  const noSamples = d.eas.filter((e) => !e.equity_samples).length;
+  set('ddSamplesNote', noSamples ? 'Equity drawdown uses floating P&L saved once a minute while positions are open. Until history builds up, earlier periods fall back to the closed-trade balance plus the live floating value.' : '');
+}
+
+function ddCell(s, color) {
+  const w = Math.min(Number(s.max_dd_pct) * 4, 100);
+  return `<div class="min-w-[150px]"><div class="flex items-baseline gap-2"><span class="font-mono font-bold ${color}">${ddAmt(s.max_dd)}</span><span class="text-[11px] font-mono text-slate-400">${ddPct(s.max_dd_pct)}</span></div>
+    <div class="mt-1.5 h-1.5 w-full rounded-full bg-slate-800/70 overflow-hidden"><div class="h-full rounded-full" style="width:${w}%;background:linear-gradient(90deg,#fb7185,#f59e0b)"></div></div></div>`;
+}
+
+function renderDrawdownTable(eas) {
+  const tb = $('eaDrawdownBody');
+  if (!eas.length) { tb.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-slate-600">No EA activity in this range</td></tr>'; return; }
+  const span = (s) => (s.peak_time ? `<span class="text-slate-300">${fmtDate(s.peak_time)}</span><span class="text-slate-600 mx-1">→</span><span class="text-rose-300">${fmtDate(s.trough_time)}</span>` : '<span class="text-slate-600">No drawdown</span>');
+  tb.innerHTML = eas.map((ea, i) => `<tr class="hover:bg-white/5 transition-colors" data-testid="ea-drawdown-row-${i}">
+    <td class="p-3"><div class="flex items-center gap-3"><span class="w-3 h-3 rounded-full shrink-0" style="background:${esc(ea.color)};box-shadow:0 0 10px ${esc(ea.color)}88"></span><div><span class="font-bold text-white text-sm" data-testid="ea-drawdown-name-${i}">${esc(ea.ea_name)}</span><div class="mt-1 flex flex-wrap gap-1">${ea.magic_numbers.map(magicChip).join('')}</div></div></div></td>
+    <td class="p-3" data-testid="ea-drawdown-equity-${i}">${ddCell(ea.equity, 'text-rose-400')}</td>
+    <td class="p-3" data-testid="ea-drawdown-balance-${i}">${ddCell(ea.balance, 'text-amber-300')}</td>
+    <td class="p-3 text-right font-mono text-xs" data-testid="ea-drawdown-current-${i}"><div class="${ea.equity.current_dd > 0 ? 'text-rose-300' : 'text-slate-400'}">${ddAmt(ea.equity.current_dd)}</div><div class="text-[10px] text-slate-500">${ddPct(ea.equity.current_dd_pct)}</div></td>
+    <td class="p-3 font-mono text-[11px]">${span(ea.equity.max_dd >= ea.balance.max_dd ? ea.equity : ea.balance)}</td>
+    <td class="p-3 text-right font-mono text-xs ${ea.floating_now >= 0 ? 'text-cyan-400' : 'text-rose-400'}" data-testid="ea-drawdown-floating-${i}">${formatUSD(ea.floating_now)}</td></tr>`).join('');
 }
 
 // 5. CALENDAR
