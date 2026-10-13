@@ -227,8 +227,25 @@ function initDB() {
         )
     `);
 
+    // TABLE 11: FLOATING P&L SAMPLES (per account + magic, ~1/min, broker time) — powers equity-based drawdown
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS floating_samples (
+            account_number TEXT NOT NULL,
+            magic_number INTEGER NOT NULL,
+            sample_time TEXT NOT NULL,
+            floating REAL DEFAULT 0,
+            PRIMARY KEY (account_number, magic_number, sample_time)
+        )
+    `);
+
+    // Broker clock offset vs UTC (minutes) so samples line up with MT5 trade times
+    if (!db.prepare('PRAGMA table_info(known_accounts)').all().some((c) => c.name === 'time_offset_min')) {
+        db.exec('ALTER TABLE known_accounts ADD COLUMN time_offset_min INTEGER');
+    }
+
     // ─── INDEXES ───
     db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_samples_time ON floating_samples(sample_time);
         CREATE INDEX IF NOT EXISTS idx_trades_account ON trades(account_number);
         CREATE INDEX IF NOT EXISTS idx_trades_magic ON trades(magic_number);
         CREATE INDEX IF NOT EXISTS idx_trades_close ON trades(close_time);
