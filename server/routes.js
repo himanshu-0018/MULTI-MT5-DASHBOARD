@@ -20,6 +20,33 @@ function colorFor(name, stored) {
     return PALETTE[h % PALETTE.length];
 }
 
+// ─── broker-clock helpers (MT5 times are broker server time, not UTC) ───
+const SAMPLE_MS = 55000;
+const FRESH_MS = 90000;
+const lastSample = new Map();
+const tms = (s) => Date.parse(String(s).replace(/\./g, '-').replace(' ', 'T').slice(0, 19) + 'Z');
+const isoOf = (t) => (t == null ? null : new Date(t).toISOString().replace('T', ' ').slice(0, 19));
+const brokerTime = (offsetMin) => isoOf(Date.now() + (offsetMin || 0) * 60000);
+const r2 = (v) => Number((Number(v) || 0).toFixed(2));
+
+// Uses EA-sent server_time when available, otherwise infers from the newest trade/position time (never decreases)
+function resolveOffset(accNo, serverTime, times) {
+    const row = db.prepare('SELECT time_offset_min FROM known_accounts WHERE account_number = ?').get(accNo);
+    const stored = row && row.time_offset_min != null ? row.time_offset_min : null;
+    const now = Date.now();
+    const round = (ms) => Math.round((ms - now) / 60000 / 15) * 15;
+    let offset;
+    const st = serverTime ? tms(serverTime) : NaN;
+    if (!isNaN(st)) offset = round(st);
+    else {
+        const valid = times.map(tms).filter((n) => !isNaN(n)).map(round).filter((o) => o >= -720 && o <= 840);
+        offset = Math.max(stored == null ? 0 : stored, ...valid);
+    }
+    offset = Math.min(840, Math.max(-720, offset));
+    if (offset !== stored) db.prepare('UPDATE known_accounts SET time_offset_min = ? WHERE account_number = ?').run(offset, accNo);
+    return offset;
+}
+
 // ==========================================
 // 🔐 0. AUTH (public)
 // ==========================================
@@ -118,6 +145,23 @@ router.post('/ea/sync', (req, res) => {
                     comment: pos.comment || ''
                 });
                 autoRegister(pos.magic_number);
+            }
+
+            // 2b. Floating P&L sample per magic (~1/min) for equity-based drawdown
+            const offsetMin = resolveOffset(accNo, account.server_time, [
+                ...open_positions.map((p) => p.open_time),
+                ...recent_trades.map((t) => t.close_time)
+            ]);
+            if (open_positions.length && Date.now() - (lastSample.get(accNo) || 0) >= SAMPLE_MS) {
+                const perMagic = {};
+                for (const pos of open_positions) {
+                    const m = Number(pos.magic_number) || 0;
+                    perMagic[m] = (perMagic[m] || 0) + (Number(pos.profit) || 0) + (Number(pos.swap) || 0);
+                }
+                const ts = brokerTime(offsetMin);
+                const insSample = db.prepare('INSERT OR REPLACE INTO floating_samples (account_number, magic_number, sample_time, floating) VALUES (?, ?, ?, ?)');
+                for (const [m, v] of Object.entries(perMagic)) insSample.run(accNo, Number(m), ts, Number(v.toFixed(2)));
+                lastSample.set(accNo, Date.now());
             }
 
             // 3. Refresh Pending Orders for this account
@@ -243,6 +287,7 @@ function purgeAccount(accountNumber) {
         db.prepare('DELETE FROM pending_orders  WHERE account_number = ?').run(acc);
         db.prepare('DELETE FROM trades          WHERE account_number = ?').run(acc);
         db.prepare('DELETE FROM daily_snapshots WHERE account_number = ?').run(acc);
+        db.prepare('DELETE FROM floating_samples WHERE account_number = ?').run(acc);
         db.prepare('DELETE FROM accounts        WHERE account_number = ?').run(acc);
     })();
 }
@@ -263,6 +308,23 @@ setInterval(() => {
          WHERE (julianday('now') - julianday(last_update)) * 86400 > ?`).all(STALE_SECONDS);
     stale.forEach((r) => purgeAccount(r.account_number));
 }, 10000);
+
+// (c) Samples older than 14 days are compacted to one (worst) value per hour to keep the DB small
+function compactSamples() {
+    const cutoff = brokerTime(-14 * 24 * 60);
+    const floor = brokerTime(-17 * 24 * 60);
+    db.transaction(() => {
+        const rows = db.prepare(`
+            SELECT account_number, magic_number, substr(sample_time, 1, 13) || ':00:00' AS h, MIN(floating) AS f
+            FROM floating_samples WHERE sample_time >= ? AND sample_time < ?
+            GROUP BY account_number, magic_number, h
+        `).all(floor, cutoff);
+        db.prepare('DELETE FROM floating_samples WHERE sample_time >= ? AND sample_time < ?').run(floor, cutoff);
+        const ins = db.prepare('INSERT OR REPLACE INTO floating_samples (account_number, magic_number, sample_time, floating) VALUES (?, ?, ?, ?)');
+        rows.forEach((r) => ins.run(r.account_number, r.magic_number, r.h, r.f));
+    })();
+}
+setInterval(compactSamples, 3600000);
 
 
 // ==========================================
@@ -518,23 +580,170 @@ router.get('/calendar', (req, res) => {
 });
 
 
+// ==========================================
+// 📉 DRAWDOWN ENGINE — balance (closed trades) + equity (closed + floating samples)
+// ==========================================
+function scoped(req, magics, cols = {}) {
+    const f = scopeFilter(req, { ...cols, useEA: !magics });
+    if (magics) f.sql += inList(cols.magic || 'magic_number', magics, f.params);
+    return f;
+}
+function rangeStart(req) {
+    const from = isYMD(req.query.from) ? req.query.from : null;
+    const min = req.scope.minDate;
+    if (from && min) return from > min ? from : min;
+    return from || min || null;
+}
+const includesToday = (req) => !isYMD(req.query.to) || req.query.to >= new Date().toISOString().slice(0, 10);
+
+// Accounts that make up the starting balance of this scope (for an EA: only accounts it traded on)
+function involvedAccounts(req, magics) {
+    const a = scopeFilter(req, { useEA: false });
+    let accs = db.prepare(`SELECT account_number, balance FROM accounts WHERE 1=1 ${a.sql}`).all(...a.params);
+    if (magics) {
+        const p = [];
+        const m = inList('magic_number', magics, p);
+        const used = new Set(db.prepare(`
+            SELECT account_number FROM trades WHERE 1=1 ${m}
+            UNION SELECT account_number FROM open_positions WHERE 1=1 ${m}
+            UNION SELECT account_number FROM floating_samples WHERE 1=1 ${m}
+        `).all(...p, ...p, ...p).map((r) => r.account_number));
+        accs = accs.filter((x) => used.has(x.account_number));
+    }
+    return accs;
+}
+
+function tracker(base) {
+    return { peak: base, peakT: null, maxDD: 0, maxPct: 0, ddPeak: base, ddPeakT: null, troughT: null, troughV: base, cur: 0, curPct: 0, last: base };
+}
+function track(k, v, t) {
+    if (v > k.peak) { k.peak = v; k.peakT = t; }
+    const dd = k.peak - v;
+    const pct = k.peak > 0 ? (dd / k.peak) * 100 : 0;
+    if (dd > k.maxDD) Object.assign(k, { maxDD: dd, ddPeak: k.peak, ddPeakT: k.peakT, troughT: t, troughV: v });
+    if (pct > k.maxPct) k.maxPct = pct;
+    Object.assign(k, { cur: dd, curPct: pct, last: v });
+    return { dd, pct };
+}
+function summary(k) {
+    return {
+        max_dd: r2(k.maxDD), max_dd_pct: r2(k.maxPct), current_dd: r2(k.cur), current_dd_pct: r2(k.curPct),
+        peak_value: r2(k.ddPeak), trough_value: r2(k.troughV), current_value: r2(k.last),
+        peak_time: k.maxDD > 0 ? isoOf(k.ddPeakT) : null, trough_time: k.maxDD > 0 ? isoOf(k.troughT) : null
+    };
+}
+
+function ddWalk(req, magics = null, withCurve = false) {
+    if (!magics && req.query.ea && req.query.ea !== 'all') magics = magicsForEA(String(req.query.ea));
+    const accs = involvedAccounts(req, magics);
+    const netAll = {};
+    db.prepare('SELECT account_number, COALESCE(SUM(net_profit), 0) AS s FROM trades GROUP BY account_number').all()
+        .forEach((r) => { netAll[r.account_number] = r.s; });
+    let base = accs.reduce((s, a) => s + a.balance - (netAll[a.account_number] || 0), 0);
+    const start = rangeStart(req);
+    if (start) {
+        const p = scoped(req, magics);
+        base += db.prepare(`SELECT COALESCE(SUM(net_profit), 0) AS s FROM trades WHERE ${DAY('close_time')} < ? ${p.sql}`).get(start, ...p.params).s;
+    }
+
+    const t = scoped(req, magics, { date: 'close_time' });
+    const r = rangeFilter(req, 'close_time');
+    const trades = db.prepare(`
+        SELECT account_number, REPLACE(close_time, '.', '-') AS time, net_profit, symbol
+        FROM trades WHERE 1=1 ${t.sql} ${r.sql} ORDER BY time ASC, id ASC
+    `).all(...t.params, ...r.params);
+    const s = scoped(req, magics, { date: 'sample_time' });
+    const rs = rangeFilter(req, 'sample_time');
+    const samples = db.prepare(`
+        SELECT account_number, sample_time AS time, SUM(floating) AS fl
+        FROM floating_samples WHERE 1=1 ${s.sql} ${rs.sql} GROUP BY account_number, sample_time ORDER BY sample_time
+    `).all(...s.params, ...rs.params);
+
+    const events = trades.map((x) => ({ k: 0, t: tms(x.time), x }))
+        .concat(samples.map((x) => ({ k: 1, t: tms(x.time), x })))
+        .sort((a, b) => a.t - b.t || a.k - b.k);
+
+    let floatingNow = 0;
+    if (includesToday(req)) {
+        const o = scoped(req, magics);
+        const rows = db.prepare(`SELECT account_number, SUM(profit + swap) AS fl FROM open_positions WHERE 1=1 ${o.sql} GROUP BY account_number`).all(...o.params);
+        floatingNow = rows.reduce((sum, x) => sum + x.fl, 0);
+        const set = new Set(accs.map((a) => a.account_number));
+        const offs = db.prepare('SELECT account_number, time_offset_min FROM known_accounts').all()
+            .filter((x) => set.has(x.account_number)).map((x) => x.time_offset_min || 0);
+        const now = Date.now() + Math.max(0, ...offs) * 60000;
+        events.push({ k: 2, t: Math.max(now, events.length ? events[events.length - 1].t : 0), rows });
+    }
+
+    const B = tracker(base), E = tracker(base);
+    if (events.length) B.peakT = E.peakT = events[0].t - 1000;
+    let bal = base, cum = 0;
+    const fl = {};
+    const curve = [];
+    const floatAt = (time, live) => Object.values(fl).reduce((sum, f) => sum + (live || time - f.t <= FRESH_MS ? f.v : 0), 0);
+    for (const e of events) {
+        if (e.k === 0) {
+            bal += e.x.net_profit; cum += e.x.net_profit;
+            delete fl[e.x.account_number];
+            const d = track(B, bal, e.t);
+            if (withCurve) curve.push({ time: e.x.time, profit: e.x.net_profit, cumulative_profit: r2(cum), balance: r2(bal), dd: r2(d.dd), dd_pct: r2(d.pct), symbol: e.x.symbol });
+        } else if (e.k === 1) {
+            fl[e.x.account_number] = { t: e.t, v: e.x.fl };
+        } else {
+            Object.keys(fl).forEach((key) => delete fl[key]);
+            e.rows.forEach((x) => { fl[x.account_number] = { t: e.t, v: x.fl }; });
+        }
+        track(E, bal + floatAt(e.t, e.k === 2), e.t);
+    }
+
+    return {
+        start_balance: r2(base),
+        floating_now: r2(floatingNow),
+        balance: summary(B),
+        equity: summary(E),
+        equity_samples: samples.length,
+        curve
+    };
+}
+
 router.get('/charts/equity-curve', (req, res) => {
     try {
+        const w = ddWalk(req, null, true);
+        res.json({ success: true, curve: w.curve, start_balance: w.start_balance, drawdown: w.balance });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// Overall + per-EA max drawdown (balance & equity based), live
+router.get('/drawdown', (req, res) => {
+    try {
+        const overall = ddWalk(req);
         const f = scopeFilter(req, { date: 'close_time' });
         const r = rangeFilter(req, 'close_time');
-        const trades = db.prepare(`
-            SELECT REPLACE(close_time, '.', '-') as close_time, net_profit, symbol, magic_number
-            FROM trades
-            WHERE 1=1 ${f.sql} ${r.sql}
-            ORDER BY close_time ASC
-        `).all(...f.params, ...r.params);
+        const o = scopeFilter(req);
+        const s = scopeFilter(req, { date: 'sample_time' });
+        const rs = rangeFilter(req, 'sample_time');
+        const magics = db.prepare(`
+            SELECT magic_number FROM trades WHERE 1=1 ${f.sql} ${r.sql}
+            UNION SELECT magic_number FROM open_positions WHERE 1=1 ${o.sql}
+            UNION SELECT magic_number FROM floating_samples WHERE 1=1 ${s.sql} ${rs.sql}
+        `).all(...f.params, ...r.params, ...o.params, ...s.params, ...rs.params).map((x) => x.magic_number);
 
-        let cumulative = 0;
-        const curve = trades.map((t) => {
-            cumulative += t.net_profit;
-            return { time: t.close_time, profit: t.net_profit, cumulative_profit: Number(cumulative.toFixed(2)), symbol: t.symbol };
+        const reg = eaNameMap();
+        const groups = {};
+        magics.forEach((m) => {
+            const name = nameOf(reg, m);
+            if (!groups[name]) groups[name] = { ea_name: name, color: colorFor(name, reg[m] && reg[m].color), magic_numbers: [] };
+            groups[name].magic_numbers.push(m);
         });
-        res.json({ success: true, curve });
+        const eas = Object.values(groups).map((g) => {
+            const w = ddWalk(req, g.magic_numbers);
+            return { ...g, magic_numbers: g.magic_numbers.sort((a, b) => a - b), start_balance: w.start_balance, floating_now: w.floating_now, balance: w.balance, equity: w.equity, equity_samples: w.equity_samples };
+        }).sort((a, b) => b.equity.max_dd - a.equity.max_dd || b.balance.max_dd - a.balance.max_dd);
+
+        const { curve, ...rest } = overall;
+        res.json({ success: true, overall: rest, eas });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
