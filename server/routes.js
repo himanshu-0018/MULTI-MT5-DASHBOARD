@@ -279,7 +279,7 @@ router.post('/ea/sync', (req, res) => {
 
 const STALE_SECONDS = 30; // terminals with no sync for 30s are deleted (EA syncs every 5s)
 
-// EA names, profiles and share links are kept — only live/trade data is removed
+// EA names, profiles, share links and floating P&L history (equity DD) are kept — only live/trade data is removed
 function purgeAccount(accountNumber) {
     const acc = String(accountNumber);
     db.transaction(() => {
@@ -287,7 +287,6 @@ function purgeAccount(accountNumber) {
         db.prepare('DELETE FROM pending_orders  WHERE account_number = ?').run(acc);
         db.prepare('DELETE FROM trades          WHERE account_number = ?').run(acc);
         db.prepare('DELETE FROM daily_snapshots WHERE account_number = ?').run(acc);
-        db.prepare('DELETE FROM floating_samples WHERE account_number = ?').run(acc);
         db.prepare('DELETE FROM accounts        WHERE account_number = ?').run(acc);
     })();
 }
@@ -656,7 +655,7 @@ function ddWalk(req, magics = null, withCurve = false) {
     const rs = rangeFilter(req, 'sample_time');
     const samples = db.prepare(`
         SELECT account_number, sample_time AS time, SUM(floating) AS fl
-        FROM floating_samples WHERE 1=1 ${s.sql} ${rs.sql} GROUP BY account_number, sample_time ORDER BY sample_time
+        FROM floating_samples WHERE account_number IN (SELECT account_number FROM accounts) ${s.sql} ${rs.sql} GROUP BY account_number, sample_time ORDER BY sample_time
     `).all(...s.params, ...rs.params);
 
     const events = trades.map((x) => ({ k: 0, t: tms(x.time), x }))
@@ -727,7 +726,7 @@ router.get('/drawdown', (req, res) => {
         const magics = db.prepare(`
             SELECT magic_number FROM trades WHERE 1=1 ${f.sql} ${r.sql}
             UNION SELECT magic_number FROM open_positions WHERE 1=1 ${o.sql}
-            UNION SELECT magic_number FROM floating_samples WHERE 1=1 ${s.sql} ${rs.sql}
+            UNION SELECT magic_number FROM floating_samples WHERE account_number IN (SELECT account_number FROM accounts) ${s.sql} ${rs.sql}
         `).all(...f.params, ...r.params, ...o.params, ...s.params, ...rs.params).map((x) => x.magic_number);
 
         const reg = eaNameMap();
