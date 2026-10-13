@@ -147,7 +147,7 @@
     </section>
 
     <!-- KPI CARDS -->
-    <section class="reveal grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+    <section class="reveal grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5">
       <div class="glass card-glow rounded-2xl p-5 relative overflow-hidden" style="--accent:#3b82f6">
         <span class="orb-mini" style="background:#3b82f6"></span>
         <div class="flex justify-between items-start mb-3"><span class="kpi-label">Balance &amp; Equity</span><span class="p-2 rounded-lg bg-blue-500/10 text-blue-400"><i data-lucide="wallet" class="w-4 h-4"></i></span></div>
@@ -172,15 +172,47 @@
         <div class="flex items-baseline gap-2"><span class="text-2xl font-extrabold text-white font-display" id="winRate" data-testid="kpi-win-rate">0%</span><span class="text-xs text-slate-400">Win Rate</span></div>
         <div class="mt-2 text-xs text-slate-400 flex items-center justify-between"><span>PF: <strong class="text-slate-200" id="profitFactor">0.00</strong></span><span>Trades: <strong class="text-slate-200" id="totalTradesCount">0</strong></span></div>
       </div>
+      <div class="glass card-glow rounded-2xl p-5 relative overflow-hidden" style="--accent:#fb7185" data-testid="kpi-max-drawdown-card">
+        <span class="orb-mini" style="background:#fb7185"></span>
+        <div class="flex justify-between items-start mb-3"><span class="kpi-label">Max Drawdown</span><span class="p-2 rounded-lg bg-rose-500/10 text-rose-400"><i data-lucide="trending-down" class="w-4 h-4"></i></span></div>
+        <div class="space-y-1.5">
+          <div class="flex items-baseline justify-between gap-2"><span class="text-[10px] uppercase tracking-wider text-slate-500">Equity</span><span class="text-right whitespace-nowrap"><span class="text-lg font-extrabold font-display text-rose-400" id="ddEquity" data-testid="kpi-max-dd-equity">$0.00</span> <span class="text-[11px] font-mono text-rose-300/80" id="ddEquityPct" data-testid="kpi-max-dd-equity-pct">0.00%</span></span></div>
+          <div class="flex items-baseline justify-between gap-2"><span class="text-[10px] uppercase tracking-wider text-slate-500">Balance</span><span class="text-right whitespace-nowrap"><span class="text-lg font-extrabold font-display text-amber-300" id="ddBalance" data-testid="kpi-max-dd-balance">$0.00</span> <span class="text-[11px] font-mono text-amber-200/80" id="ddBalancePct" data-testid="kpi-max-dd-balance-pct">0.00%</span></span></div>
+        </div>
+        <div class="mt-2 text-xs text-slate-400 flex items-center justify-between"><span>Current DD: <strong class="text-slate-200" id="ddCurrent" data-testid="kpi-current-dd">$0.00</strong></span><span id="ddCurrentPct" class="font-mono text-[11px]">0.00%</span></div>
+      </div>
     </section>
 
     <!-- EQUITY CURVE -->
-    <section class="reveal glass gradient-border rounded-2xl p-6">
-      <div class="flex items-start justify-between gap-3 mb-4">
-        <div><h2 class="text-base font-bold text-white flex items-center gap-2 font-display"><i data-lucide="trending-up" class="w-5 h-5 text-cyan-400"></i>Cumulative Growth Curve</h2><p class="text-xs text-slate-500 mt-0.5">Net profit trajectory • peak &amp; valley auto-marked</p></div>
-        <div class="hidden sm:flex items-center gap-3 text-xs text-slate-400"><span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span> Peak</span><span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-rose-400"></span> Valley</span><span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-cyan-400"></span> Current</span></div>
+    <section class="reveal glass gradient-border rounded-2xl p-6" data-testid="growth-curve-section">
+      <div class="flex flex-wrap items-start justify-between gap-3 mb-4">
+        <div><h2 class="text-base font-bold text-white flex items-center gap-2 font-display"><i data-lucide="trending-up" class="w-5 h-5 text-cyan-400"></i>Cumulative Growth Curve</h2><p class="text-xs text-slate-500 mt-0.5">Balance after every closed trade over time • peak, valley &amp; max drawdown auto-marked</p></div>
+        <div class="flex flex-wrap items-center gap-3 text-xs text-slate-400"><span class="hidden sm:flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span> Peak</span><span class="hidden sm:flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-rose-400"></span> Valley</span><span class="hidden sm:flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-cyan-400"></span> Current</span><span class="hidden sm:flex items-center gap-1.5"><span class="w-3 h-2.5 rounded-sm bg-rose-400/25 border border-rose-400/40"></span> Max DD</span><span class="hidden sm:flex items-center gap-1.5"><span class="w-4 border-t border-dashed border-slate-400"></span> Start</span></div>
       </div>
       <div id="equityChart" class="relative w-full"></div>
+      <div class="flex items-center justify-between mt-4 mb-2">
+        <p class="kpi-label">Underwater (drawdown from peak balance)</p>
+        <div class="flex rounded-lg border border-white/10 overflow-hidden" data-testid="dd-mode-toggle">
+          <button type="button" class="dd-mode px-3 py-1 text-[11px] font-mono" data-mode="usd" data-testid="dd-mode-usd">DD $</button>
+          <button type="button" class="dd-mode px-3 py-1 text-[11px] font-mono" data-mode="pct" data-testid="dd-mode-pct">DD %</button>
+        </div>
+      </div>
+      <div id="underwaterChart" class="relative w-full" data-testid="underwater-chart"></div>
+    </section>
+
+    <!-- DRAWDOWN PER EA (live) -->
+    <section class="reveal glass rounded-2xl p-6 space-y-4" data-testid="ea-drawdown-section">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div><h2 class="text-lg font-bold text-white flex items-center gap-2 font-display"><i data-lucide="shield-alert" class="w-5 h-5 text-rose-400"></i>Drawdown by EA</h2><p class="text-xs text-slate-500 mt-0.5">Max loss from peak per EA in the selected range • equity = closed + floating P&amp;L, balance = closed trades only • % of peak (start balance of the accounts the EA trades on)</p></div>
+        <span class="flex items-center gap-2 text-xs bg-rose-500/10 text-rose-300 px-2.5 py-1 rounded-full font-mono border border-rose-500/20" data-testid="ea-drawdown-live-badge"><span class="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse"></span>LIVE</span>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-sm whitespace-nowrap">
+          <thead class="text-xs text-slate-400 uppercase bg-slate-900/60"><tr><th class="p-3 rounded-l-lg">EA / Strategy</th><th class="p-3">Max DD — Equity</th><th class="p-3">Max DD — Balance</th><th class="p-3 text-right">Current DD</th><th class="p-3">Peak → Trough</th><th class="p-3 text-right rounded-r-lg">Floating Now</th></tr></thead>
+          <tbody id="eaDrawdownBody" data-testid="ea-drawdown-table" class="divide-y divide-white/5"></tbody>
+        </table>
+      </div>
+      <p id="ddSamplesNote" class="text-[11px] text-slate-500"></p>
     </section>
 
     <!-- EA BARS + DONUT -->
