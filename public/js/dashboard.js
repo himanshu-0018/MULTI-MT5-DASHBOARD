@@ -216,6 +216,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.addEventListener('click', (e) => {
     const chip = e.target.closest('button.magic-chip[data-magic]');
     if (chip && !isShare()) openEANames(Number(chip.dataset.magic));
+    const st = e.target.closest('button.show-trades-btn[data-ea]');
+    if (st) openEATrades(st.dataset.ea);
+  });
   });
   initRangeFilter();
   initDDMode();
@@ -357,7 +360,7 @@ function renderBars(eas) {
   if (!eas.length) { box.innerHTML = '<div class="text-center py-6 text-slate-600 text-sm">No EA data in this range</div>'; return; }
   box.innerHTML = eas.map((ea, i) => {
     const pct = (Math.abs(ea.total_pnl) / max) * 100; const pos = ea.total_pnl >= 0;
-    return `<div><div class="flex items-center justify-between text-xs mb-1"><span class="font-semibold text-slate-200">${esc(ea.ea_name)}${ea.magic_numbers.length > 1 ? ` <span class="text-[10px] text-slate-500 font-normal">• ${ea.magic_numbers.length} merged</span>` : ''}</span><span class="font-mono font-bold ${pos ? 'text-emerald-400' : 'text-rose-400'}">${formatUSD(ea.total_pnl)}</span></div>
+    return `<div><div class="flex items-center justify-between text-xs mb-1"><span class="font-semibold text-slate-200">${esc(ea.ea_name)}${ea.magic_numbers.length > 1 ? ` <span class="text-[10px] text-slate-500 font-normal">• ${ea.magic_numbers.length} merged</span>` : ''}</span><span class="flex items-center gap-2.5"><span class="font-mono font-bold ${pos ? 'text-emerald-400' : 'text-rose-400'}">${formatUSD(ea.total_pnl)}</span><button type="button" class="show-trades-btn" data-ea="${esc(ea.ea_name)}" data-testid="show-trades-btn-${i}"><i data-lucide="list" class="w-3 h-3"></i>Show trades</button></span></div>
       <div class="h-2.5 w-full rounded-full bg-slate-800/60 overflow-hidden"><div class="h-full rounded-full eq-bar" data-w="${pct}" style="transition-delay:${i * 90}ms;background:${pos ? 'linear-gradient(90deg,#22d3ee,#34d399)' : 'linear-gradient(90deg,#fb7185,#f59e0b)'};box-shadow:${pos ? '0 0 12px rgba(34,211,238,0.4)' : '0 0 12px rgba(251,113,133,0.4)'}"></div></div></div>`;
   }).join('');
   requestAnimationFrame(() => box.querySelectorAll('.eq-bar').forEach((b) => { b.style.width = b.dataset.w + '%'; }));
