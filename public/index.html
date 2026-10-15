@@ -282,7 +282,10 @@
         <button type="button" class="icon-btn shrink-0" data-tm-close="1" data-testid="ea-trades-close-button" title="Close"><i data-lucide="x" class="w-4 h-4"></i></button>
       </div>
       <div class="flex flex-wrap items-center justify-between gap-3 px-5 sm:px-6 pt-4">
-        <span class="tm-period" data-testid="ea-trades-period"><i data-lucide="calendar" class="w-3.5 h-3.5 text-slate-400"></i><span id="tmPeriodText">All time</span></span>
+        <div class="flex flex-wrap items-center gap-3">
+          <span class="tm-period" data-testid="ea-trades-period"><i data-lucide="calendar" class="w-3.5 h-3.5 text-slate-400"></i><span id="tmPeriodText">All time</span></span>
+          <span class="tm-legend" data-testid="ea-trades-legend"><span class="tm-dot tm-dot-win"></span>Profit<span class="tm-dot tm-dot-loss"></span>Loss</span>
+        </div>
         <span id="tmMeta" class="text-[11px] text-slate-500 font-mono"></span>
       </div>
       <div id="tmStats" class="grid grid-cols-2 sm:grid-cols-4 gap-3 px-5 sm:px-6 pt-4"></div>
