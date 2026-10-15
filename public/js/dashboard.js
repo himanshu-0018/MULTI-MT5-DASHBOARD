@@ -203,6 +203,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   typeHeadline('Center');
   initLock();
   initModal();
+  initTradesModal();
   $('accountFilter').addEventListener('change', (e) => { currentAccount = e.target.value; refreshDashboard(); });
   $('eaFilter').addEventListener('change', (e) => { currentEA = e.target.value; refreshDashboard(); });
   $('profileFilter').addEventListener('change', (e) => {
@@ -216,9 +217,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.addEventListener('click', (e) => {
     const chip = e.target.closest('button.magic-chip[data-magic]');
     if (chip && !isShare()) openEANames(Number(chip.dataset.magic));
-    const st = e.target.closest('button.show-trades-btn[data-ea]');
-    if (st) openEATrades(st.dataset.ea);
-  });
+    const tradesBtn = e.target.closest('button[data-show-trades]');
+    if (tradesBtn) openEATrades(tradesBtn.dataset.showTrades);
   });
   initRangeFilter();
   initDDMode();
@@ -259,6 +259,11 @@ async function refreshDashboard(spin = false) {
     await Promise.all([fetchAccountsList(), fetchEAList(), fetchOverview(), fetchEquity(), fetchDrawdown(), fetchCalendar(), fetchPositions(), fetchPendingOrders()]);
     $('lastUpdated').textContent = new Date().toLocaleTimeString();
     $('dataMode').textContent = isShare() ? 'Shared read-only view' : 'Cloud Sync';
+    // If the trades popup is open, follow the top filters (period / account / EA / profile)
+    if (tmState.open && tmState.ea) {
+      const sig = filterSignature();
+      if (sig !== tmState.sig) { tmState.sig = sig; loadEATrades(false); }
+    }
     lucide.createIcons();
     firstLoad = false;
   } finally { refreshing = false; }
@@ -360,15 +365,20 @@ function renderBars(eas) {
   if (!eas.length) { box.innerHTML = '<div class="text-center py-6 text-slate-600 text-sm">No EA data in this range</div>'; return; }
   box.innerHTML = eas.map((ea, i) => {
     const pct = (Math.abs(ea.total_pnl) / max) * 100; const pos = ea.total_pnl >= 0;
-    return `<div><div class="flex items-center justify-between text-xs mb-1"><span class="font-semibold text-slate-200">${esc(ea.ea_name)}${ea.magic_numbers.length > 1 ? ` <span class="text-[10px] text-slate-500 font-normal">• ${ea.magic_numbers.length} merged</span>` : ''}</span><span class="flex items-center gap-2.5"><span class="font-mono font-bold ${pos ? 'text-emerald-400' : 'text-rose-400'}">${formatUSD(ea.total_pnl)}</span><button type="button" class="show-trades-btn" data-ea="${esc(ea.ea_name)}" data-testid="show-trades-btn-${i}"><i data-lucide="list" class="w-3 h-3"></i>Show trades</button></span></div>
+    return `<div><div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs mb-1"><span class="font-semibold text-slate-200 truncate">${esc(ea.ea_name)}${ea.magic_numbers.length > 1 ? ` <span class="text-[10px] text-slate-500 font-normal">• ${ea.magic_numbers.length} merged</span>` : ''}</span><span class="flex items-center gap-2 shrink-0"><span class="font-mono font-bold ${pos ? 'text-emerald-400' : 'text-rose-400'}">${formatUSD(ea.total_pnl)}</span>${showTradesBtn(ea.ea_name, `show-trades-${i}`)}</span></div>
       <div class="h-2.5 w-full rounded-full bg-slate-800/60 overflow-hidden"><div class="h-full rounded-full eq-bar" data-w="${pct}" style="transition-delay:${i * 90}ms;background:${pos ? 'linear-gradient(90deg,#22d3ee,#34d399)' : 'linear-gradient(90deg,#fb7185,#f59e0b)'};box-shadow:${pos ? '0 0 12px rgba(34,211,238,0.4)' : '0 0 12px rgba(251,113,133,0.4)'}"></div></div></div>`;
   }).join('');
   requestAnimationFrame(() => box.querySelectorAll('.eq-bar').forEach((b) => { b.style.width = b.dataset.w + '%'; }));
 }
 
+// "Show trades" trigger — opens the closed-trade history popup for one EA
+function showTradesBtn(eaName, testid) {
+  return `<button type="button" class="btn-trades" data-show-trades="${esc(eaName)}" data-testid="${esc(testid)}" title="Show every closed trade of ${esc(eaName)} in the selected period"><i data-lucide="list" class="w-3 h-3"></i>Show trades</button>`;
+}
+
 function renderLeaderboard(eas) {
   const tb = $('eaLeaderboardBody');
-  if (!eas.length) { tb.innerHTML = '<tr><td colspan="8" class="text-center py-8 text-slate-600">No EA data available yet</td></tr>'; return; }
+  if (!eas.length) { tb.innerHTML = '<tr><td colspan="9" class="text-center py-8 text-slate-600">No EA data available yet</td></tr>'; return; }
   const medal = ['🥇', '🥈', '🥉'];
   tb.innerHTML = eas.map((ea, i) => {
     const wr = ea.total_trades > 0 ? ((ea.wins / ea.total_trades) * 100).toFixed(1) : '0.0';
@@ -380,7 +390,8 @@ function renderLeaderboard(eas) {
       <td class="p-3 text-center"><span class="text-emerald-400 font-semibold">${ea.wins}</span><span class="text-slate-600 mx-1">/</span><span class="text-rose-400 font-semibold">${ea.losses}</span></td>
       <td class="p-3"><div class="flex items-center justify-center gap-2"><div class="w-16 bg-slate-800 rounded-full h-2 overflow-hidden"><div class="h-2 rounded-full" style="width:${wr}%;background:${Number(wr) >= 50 ? 'linear-gradient(90deg,#34d399,#22d3ee)' : 'linear-gradient(90deg,#fb7185,#f59e0b)'}"></div></div><span class="text-xs font-bold ${Number(wr) >= 50 ? 'text-emerald-400' : 'text-rose-400'}">${wr}%</span></div></td>
       <td class="p-3 text-right font-mono text-xs ${avg >= 0 ? 'text-emerald-400' : 'text-rose-400'}">${formatUSD(avg)}</td>
-      <td class="p-3 text-right font-mono text-xs ${ea.open_pnl >= 0 ? 'text-cyan-400' : 'text-rose-400'}">${formatUSD(ea.open_pnl)}${ea.pending_count ? `<br><span class="text-[10px] text-sky-300">${ea.pending_count} pending</span>` : ''}</td></tr>`;
+      <td class="p-3 text-right font-mono text-xs ${ea.open_pnl >= 0 ? 'text-cyan-400' : 'text-rose-400'}">${formatUSD(ea.open_pnl)}${ea.pending_count ? `<br><span class="text-[10px] text-sky-300">${ea.pending_count} pending</span>` : ''}</td>
+      <td class="p-3 text-center">${showTradesBtn(ea.ea_name, `leaderboard-show-trades-${i}`)}</td></tr>`;
   }).join('');
 }
 
@@ -620,6 +631,112 @@ async function fetchPendingOrders() {
       <td class="p-2.5 font-mono text-slate-400">${o.expiration ? fmtDate(o.expiration) : 'GTC'}</td>
       <td class="p-2.5 text-slate-400 max-w-[160px] truncate" title="${esc(o.comment)}">${esc(o.comment) || '—'}</td></tr>`;
   }).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// EA TRADES POPUP — every closed trade of one EA for the selected period
+// ═══════════════════════════════════════════════════════════════
+const TM_PAGE = 100;
+let tmState = { open: false, ea: null, trades: [], total: 0, totals: null, loading: false, sig: '' };
+
+const fmtDayLabel = (ymd) => {
+  const d = new Date(ymd + 'T00:00:00');
+  return isNaN(d.getTime()) ? ymd : d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+};
+function tmPeriodLabel() {
+  if (currentFrom && currentTo) return currentFrom === currentTo ? fmtDayLabel(currentFrom) : `${fmtDayLabel(currentFrom)} → ${fmtDayLabel(currentTo)}`;
+  if (currentFrom) return `From ${fmtDayLabel(currentFrom)}`;
+  if (currentTo) return `Until ${fmtDayLabel(currentTo)}`;
+  return 'All time';
+}
+const filterSignature = () => [currentProfile, currentAccount, currentEA, currentFrom || '', currentTo || ''].join('|');
+function tmQuery(ea, offset) {
+  return `/ea-trades?ea=${encodeURIComponent(ea)}&account=${encodeURIComponent(currentAccount)}&limit=${TM_PAGE}&offset=${offset}${dateParams().length ? '&' + dateParams().join('&') : ''}`;
+}
+
+function initTradesModal() {
+  $('tradesModal').addEventListener('click', (e) => { if (e.target.closest('[data-tm-close]')) closeTradesModal(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && tmState.open) closeTradesModal(); });
+}
+function closeTradesModal() {
+  tmState.open = false; tmState.ea = null; tmState.trades = [];
+  document.body.classList.remove('modal-open');
+  const m = $('tradesModal'); m.classList.add('hidden'); m.classList.remove('flex');
+}
+
+async function openEATrades(eaName) {
+  if (!eaName) return;
+  tmState = { open: true, ea: eaName, trades: [], total: 0, totals: null, loading: false, sig: filterSignature() };
+  $('tmTitle').textContent = `Trades — ${eaName}`;
+  $('tmPeriodText').textContent = tmPeriodLabel();
+  $('tmMeta').textContent = '';
+  $('tmStats').innerHTML = '';
+  $('tmBody').innerHTML = '<tr><td colspan="5" class="text-center py-12 text-slate-500">Loading trades…</td></tr>';
+  $('tmMore').classList.add('hidden'); $('tmMore').classList.remove('flex');
+  const m = $('tradesModal'); m.classList.remove('hidden'); m.classList.add('flex');
+  document.body.classList.add('modal-open');
+  lucide.createIcons();
+  await loadEATrades(false);
+}
+
+async function loadEATrades(append) {
+  if (!tmState.open || !tmState.ea || tmState.loading) return;
+  tmState.loading = true;
+  try {
+    const d = await request(tmQuery(tmState.ea, append ? tmState.trades.length : 0));
+    tmState.trades = append ? tmState.trades.concat(d.trades || []) : (d.trades || []);
+    tmState.total = d.total || 0;
+    tmState.totals = d.totals || null;
+    $('tmTitle').textContent = `Trades — ${d.ea.ea_name}`;
+    $('tmPeriodText').textContent = tmPeriodLabel();
+    renderTradesStats(d.totals);
+    renderTradesRows();
+    const magics = (d.ea.magic_numbers || []).join(', ');
+    $('tmMeta').textContent = `${tmState.trades.length} of ${tmState.total} trade${tmState.total === 1 ? '' : 's'}${magics ? ' • magic ' + magics : ''}`;
+    renderTradesMore();
+  } catch (e) {
+    if (!(e instanceof AuthError)) {
+      toast(e.message, 'error');
+      if (!append) $('tmBody').innerHTML = `<tr><td colspan="5" class="text-center py-12 text-rose-300">${esc(e.message)}</td></tr>`;
+    }
+  } finally { tmState.loading = false; lucide.createIcons(); }
+}
+
+function renderTradesStats(t) {
+  const s = t || { net_pnl: 0, trades: 0, wins: 0, losses: 0, win_rate: 0, volume: 0 };
+  const pnlPos = Number(s.net_pnl) >= 0; const wr = Number(s.win_rate) || 0;
+  $('tmStats').innerHTML = `
+    <div class="tm-stat" data-testid="ea-trades-stat-net-pnl"><span class="tm-stat-label">Net P&amp;L</span><span class="tm-stat-value ${pnlPos ? 'text-emerald-400' : 'text-rose-400'}">${formatUSD(s.net_pnl)}</span></div>
+    <div class="tm-stat" data-testid="ea-trades-stat-trades"><span class="tm-stat-label">Trades</span><span class="tm-stat-value text-white">${s.trades || 0}</span></div>
+    <div class="tm-stat" data-testid="ea-trades-stat-wl"><span class="tm-stat-label">W / L</span><span class="tm-stat-value"><span class="text-emerald-400">${s.wins || 0}</span><span class="text-slate-500"> / </span><span class="text-rose-400">${s.losses || 0}</span></span></div>
+    <div class="tm-stat" data-testid="ea-trades-stat-win-rate"><span class="tm-stat-label">Win Rate</span><span class="tm-stat-value ${wr >= 50 ? 'text-emerald-400' : 'text-rose-400'}">${wr.toFixed(1)}%</span></div>`;
+}
+
+function renderTradesRows() {
+  const tb = $('tmBody');
+  if (!tmState.trades.length) {
+    tb.innerHTML = `<tr><td colspan="5" class="text-center py-12 text-slate-500">No closed trades for this EA in <span class="text-slate-300">${esc(tmPeriodLabel())}</span></td></tr>`;
+    return;
+  }
+  tb.innerHTML = tmState.trades.map((t, i) => {
+    const net = Number(t.net_profit) || 0;
+    const buy = String(t.trade_type || '').toUpperCase() === 'BUY';
+    return `<tr data-testid="ea-trade-row-${i}" title="Ticket ${esc(t.ticket)} • Account ${esc(t.account_number)}${t.comment ? ' • ' + esc(t.comment) : ''}">
+      <td><div class="flex items-center gap-2"><span class="font-bold text-white">${esc(t.symbol)}</span><span class="tm-tag ${buy ? 'tm-tag-buy' : 'tm-tag-sell'}">${esc(t.trade_type || '')}</span></div></td>
+      <td class="font-mono text-slate-300">${(Number(t.volume) || 0).toFixed(2)}</td>
+      <td class="font-mono text-slate-300">${fmtDate(t.open_time)}</td>
+      <td class="font-mono text-slate-300">${fmtDate(t.close_time)}</td>
+      <td class="text-right font-mono font-bold ${net >= 0 ? 'text-emerald-400' : 'text-rose-400'}" data-testid="ea-trade-pnl-${i}">${formatUSD(net)}</td></tr>`;
+  }).join('');
+}
+
+function renderTradesMore() {
+  const box = $('tmMore');
+  const left = tmState.total - tmState.trades.length;
+  if (left <= 0) { box.classList.add('hidden'); box.classList.remove('flex'); box.innerHTML = ''; return; }
+  box.classList.remove('hidden'); box.classList.add('flex');
+  box.innerHTML = `<button type="button" id="tmMoreBtn" class="btn-ghost" data-testid="ea-trades-load-more"><i data-lucide="chevron-down" class="w-3.5 h-3.5"></i>Load ${Math.min(TM_PAGE, left)} more (${left} left)</button>`;
+  $('tmMoreBtn').addEventListener('click', () => loadEATrades(true));
 }
 
 // ═══════════════════════════════════════════════════════════════
