@@ -542,31 +542,85 @@ router.get('/eas', (req, res) => {
     }
 });
 
-// Closed trades of one EA (all its merged magic numbers) in the selected range, newest first
-router.get('/eas/trades', (req, res) => {
+
+// ==========================================
+// 📜 CLOSED TRADES OF ONE EA — powers the "Show trades" popup
+// Respects the profile / share-link scope, the account filter and the selected date range.
+// ==========================================
+const TRADES_PAGE_MAX = 500;
+const TRADES_PAGE_DEFAULT = 100;
+
+router.get('/ea-trades', (req, res) => {
     try {
-        const name = String(req.query.name || '').trim();
-        if (!name) return res.status(400).json({ success: false, error: 'Missing EA name' });
-        const f = scopeFilter(req, { date: 'close_time', useAccount: false, useEA: false });
-        f.sql += inList('magic_number', magicsForEA(name), f.params);
-        const r = rangeFilter(req, 'close_time');
+        const ea = String(req.query.ea || '').trim();
+        if (!ea) return res.status(400).json({ success: false, error: 'Missing EA name' });
+
+        // Every magic number that belongs to this EA (merged EAs share a name)
+        const magics = magicsForEA(ea);
+
+        // useEA:false → the ea query param is ignored here, we pin the magics ourselves
+        const f = scopeFilter(req, { acc: 't.account_number', magic: 't.magic_number', date: 't.close_time', useEA: false });
+        f.sql += inList('t.magic_number', magics, f.params);
+        const r = rangeFilter(req, 't.close_time');
+
+        const totals = db.prepare(`
+            SELECT
+                COUNT(*) as total_trades,
+                COALESCE(SUM(t.net_profit), 0) as net_pnl,
+                COALESCE(SUM(t.volume), 0) as total_volume,
+                SUM(CASE WHEN t.net_profit > 0 THEN 1 ELSE 0 END) as wins,
+                SUM(CASE WHEN t.net_profit < 0 THEN 1 ELSE 0 END) as losses
+            FROM trades t
+            WHERE 1=1 ${f.sql} ${r.sql}
+        `).get(...f.params, ...r.params);
+
+        const limit = Math.min(Math.max(Number(req.query.limit) || TRADES_PAGE_DEFAULT, 1), TRADES_PAGE_MAX);
+        const offset = Math.max(Number(req.query.offset) || 0, 0);
+
         const trades = db.prepare(`
-            SELECT account_number, ticket, magic_number, symbol, trade_type, volume,
-                   REPLACE(open_time, '.', '-') AS open_time, REPLACE(close_time, '.', '-') AS close_time, net_profit
-            FROM trades WHERE 1=1 ${f.sql} ${r.sql}
-            ORDER BY close_time DESC, id DESC
-        `).all(...f.params, ...r.params);
-        const wins = trades.filter((t) => t.net_profit > 0).length;
-        const losses = trades.filter((t) => t.net_profit < 0).length;
+            SELECT
+                t.ticket, t.account_number, t.symbol, t.trade_type, t.volume,
+                t.open_price, t.close_price, t.open_time, t.close_time,
+                t.profit, t.commission, t.swap, t.net_profit, t.comment
+            FROM trades t
+            WHERE 1=1 ${f.sql} ${r.sql}
+            ORDER BY REPLACE(t.close_time, '.', '-') DESC, t.id DESC
+            LIMIT ? OFFSET ?
+        `).all(...f.params, ...r.params, limit, offset);
+
+        const reg = eaNameMap();
+        const stored = magics.map((m) => reg[m] && reg[m].color).filter((c) => c && c !== '#3b82f6')[0];
+        const total = totals.total_trades || 0;
+        const wins = totals.wins || 0;
+        const losses = totals.losses || 0;
+
         res.json({
             success: true,
-            ea_name: name,
-            net_pnl: r2(trades.reduce((s, t) => s + t.net_profit, 0)),
-            total_trades: trades.length,
-            wins,
-            losses,
-            win_rate: trades.length ? r2((wins / trades.length) * 100) : 0,
-            trades
+            ea: { ea_name: ea, color: colorFor(ea, stored), magic_numbers: magics.slice().sort((a, b) => a - b) },
+            period: {
+                from: isYMD(req.query.from) ? req.query.from : null,
+                to: isYMD(req.query.to) ? req.query.to : null,
+                min_date: req.scope.minDate || null
+            },
+            totals: {
+                net_pnl: r2(totals.net_pnl),
+                trades: total,
+                wins,
+                losses,
+                win_rate: total ? Number(((wins / total) * 100).toFixed(1)) : 0,
+                volume: r2(totals.total_volume)
+            },
+            total,
+            limit,
+            offset,
+            trades: trades.map((t) => ({
+                ...t,
+                volume: Number(t.volume) || 0,
+                profit: r2(t.profit),
+                commission: r2(t.commission),
+                swap: r2(t.swap),
+                net_profit: r2(t.net_profit)
+            }))
         });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
