@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="referrer" content="no-referrer" />
+  <title>MT5 Multi-Account Command Center</title>
+
+  <!-- Tailwind (utility classes) + icons + fonts -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+
+  <!-- Custom futuristic styles -->
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body class="min-h-screen flex flex-col antialiased text-slate-100 locked">
+
+  <!-- ═══ IMMERSIVE BACKGROUND ═══ -->
+  <div id="bg" class="fixed inset-0 -z-10 overflow-hidden" aria-hidden="true">
+    <div class="absolute inset-0 bg-[#05070f]"></div>
+    <div class="absolute inset-0" style="background: radial-gradient(1200px circle at 20% -10%, rgba(34,211,238,0.10), transparent 55%), radial-gradient(1000px circle at 100% 10%, rgba(168,85,247,0.10), transparent 50%);"></div>
+    <div class="absolute inset-0 grid-mask"></div>
+    <div class="orb orb-cyan"></div>
+    <div class="orb orb-violet"></div>
+    <div class="orb orb-emerald"></div>
+    <canvas id="stars" class="absolute inset-0"></canvas>
+    <div id="spotlight" class="absolute inset-0"></div>
+  </div>
+
+  <!-- ═══ LOADING SCREEN ═══ -->
+  <div id="loader" class="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-[#05070f] transition-opacity duration-700">
+    <div class="relative w-28 h-28">
+      <span class="absolute inset-0 rounded-2xl border border-cyan-400/30 loader-ring"></span>
+      <span class="absolute inset-2 rounded-2xl border border-violet-400/30 loader-ring-2"></span>
+      <div class="absolute inset-0 flex items-center justify-center">
+        <div class="w-16 h-16 rounded-2xl grad-cyan-violet flex items-center justify-center loader-pop" style="box-shadow:0 0 40px rgba(34,211,238,0.5)">
+          <i data-lucide="activity" class="w-9 h-9 text-white"></i>
+        </div>
+      </div>
+    </div>
+    <div class="mt-8 font-display text-sm uppercase tracking-[0.5em] text-slate-400 loader-text">MT5 Command Center</div>
+    <div class="mt-5 h-[3px] w-48 overflow-hidden rounded-full bg-slate-800"><div class="h-full grad-cyan-violet loader-bar"></div></div>
+  </div>
+
+  <!-- ═══ MASTER PASSCODE LOCK SCREEN (active by default) ═══ -->
+  <div id="lockScreen" data-testid="lock-screen" class="fixed inset-0 z-[90] flex items-center justify-center px-4">
+    <div class="lock-card glass gradient-border rounded-3xl p-8 w-full max-w-sm text-center">
+      <div class="mx-auto w-16 h-16 rounded-2xl grad-cyan-violet flex items-center justify-center" style="box-shadow:0 0 35px rgba(34,211,238,0.4)">
+        <i data-lucide="lock-keyhole" class="w-8 h-8 text-white" id="lockIcon"></i>
+      </div>
+      <div id="lockForm">
+        <h2 class="mt-6 font-display text-2xl font-bold text-white">Command Center Locked</h2>
+        <p class="mt-2 text-sm text-slate-400">Enter your master passcode to unlock the dashboard.</p>
+        <form id="unlockForm" class="mt-6 space-y-3" autocomplete="off">
+          <input id="passcodeInput" data-testid="lock-passcode-input" type="password" placeholder="Master passcode" class="field w-full text-center tracking-[0.3em]" autofocus />
+          <button type="submit" id="unlockBtn" data-testid="lock-unlock-button" class="btn-primary w-full">
+            <i data-lucide="unlock" class="w-4 h-4"></i><span>Unlock</span>
+          </button>
+          <p id="lockError" data-testid="lock-error" class="text-xs text-rose-400 min-h-[16px]"></p>
+        </form>
+      </div>
+      <div id="shareInvalid" class="hidden" data-testid="share-invalid-screen">
+        <h2 class="mt-6 font-display text-2xl font-bold text-white">Link unavailable</h2>
+        <p class="mt-2 text-sm text-slate-400">This shared link is invalid or has been revoked by its owner.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ TOP NAV ═══ -->
+  <header class="sticky top-0 z-50 glass border-b border-white/5">
+    <div class="max-w-[1400px] mx-auto flex flex-col xl:flex-row items-center justify-between gap-4 px-5 py-3.5">
+      <div class="flex items-center gap-3">
+        <div class="w-11 h-11 rounded-xl grad-cyan-violet flex items-center justify-center float-soft" style="box-shadow:0 0 25px rgba(34,211,238,0.35)">
+          <i data-lucide="activity" class="w-6 h-6 text-white"></i>
+        </div>
+        <div>
+          <h1 class="font-display text-lg font-bold tracking-tight text-gradient">MT5 Command Center</h1>
+          <div class="flex items-center gap-2 text-[11px] text-slate-400">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" style="box-shadow:0 0 8px #34d399"></span>
+            <span>Cloud Sync Active</span><span class="text-slate-600">•</span>
+            <span id="lastUpdated" class="font-mono">Updating…</span>
+          </div>
+        </div>
+      </div>
+      <div class="flex flex-wrap items-center justify-center gap-2.5">
+        <!-- Share-mode badge -->
+        <span id="shareBadge" data-testid="share-mode-badge" class="share-only hidden items-center gap-2 h-10 px-3 rounded-lg bg-violet-500/10 border border-violet-400/30 text-violet-200 text-xs font-semibold">
+          <i data-lucide="eye" class="w-4 h-4"></i><span id="shareBadgeText">Shared view</span>
+        </span>
+        <div class="select-wrap admin-only"><i data-lucide="users" class="w-4 h-4 text-amber-400 sw-lead"></i>
+          <select id="profileFilter" data-testid="profile-switcher"><option value="all">All Profiles</option></select>
+          <i data-lucide="chevron-down" class="w-4 h-4 text-slate-400 caret"></i>
+        </div>
+        <div class="select-wrap"><i data-lucide="globe" class="w-4 h-4 text-cyan-400 sw-lead"></i>
+          <select id="accountFilter" data-testid="account-filter"><option value="all">All Accounts</option></select>
+          <i data-lucide="chevron-down" class="w-4 h-4 text-slate-400 caret"></i>
+        </div>
+        <div class="select-wrap"><i data-lucide="zap" class="w-4 h-4 text-violet-400 sw-lead"></i>
+          <select id="eaFilter" data-testid="ea-filter"><option value="all">All EAs</option></select>
+          <i data-lucide="chevron-down" class="w-4 h-4 text-slate-400 caret"></i>
+        </div>
+        <div class="select-wrap"><i data-lucide="calendar-clock" class="w-4 h-4 text-emerald-400 sw-lead"></i>
+          <select id="rangeFilter" data-testid="range-filter">
+            <option value="current_month" selected>Current Month</option>
+            <option value="all">All Time</option>
+            <option value="7d">Last 7 Days</option>
+            <option value="30d">Last 30 Days</option>
+            <option value="custom">Custom…</option>
+          </select>
+          <i data-lucide="chevron-down" class="w-4 h-4 text-slate-400 caret"></i>
+        </div>
+        <div id="customRange" class="hidden items-center gap-2">
+          <input type="date" id="fromDate" data-testid="range-from-date" class="date-input" />
+          <span class="text-slate-500 text-xs">to</span>
+          <input type="date" id="toDate" data-testid="range-to-date" class="date-input" />
+          <button id="applyRange" data-testid="range-apply-button" class="h-10 px-3 rounded-lg bg-cyan-500/15 border border-cyan-400/40 text-cyan-300 text-xs font-semibold hover:bg-cyan-500/25 transition">Apply</button>
+        </div>
+        <button id="refreshBtn" data-testid="refresh-button" title="Refresh" class="icon-btn">
+          <i data-lucide="rotate-cw" class="w-4 h-4" id="refreshIcon"></i>
+        </button>
+        <button id="eaNamesBtn" data-testid="open-ea-names-button" title="Name your EAs" class="icon-btn admin-only"><i data-lucide="tag" class="w-4 h-4"></i></button>
+        <button id="profilesBtn" data-testid="open-profiles-button" title="Manage profiles" class="icon-btn admin-only"><i data-lucide="users-round" class="w-4 h-4"></i></button>
+        <button id="shareBtn" data-testid="open-share-button" title="Share a profile" class="icon-btn admin-only accent"><i data-lucide="share-2" class="w-4 h-4"></i></button>
+        <button id="lockBtn" data-testid="lock-dashboard-button" title="Lock dashboard" class="icon-btn admin-only"><i data-lucide="lock" class="w-4 h-4"></i></button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ═══ MAIN ═══ -->
+  <main class="flex-1 w-full max-w-[1400px] mx-auto px-4 sm:px-6 py-8 space-y-8">
+
+    <!-- HERO -->
+    <section class="reveal relative text-center py-10 sm:py-14">
+      <span class="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.3em] text-cyan-300/80 border border-cyan-400/20 rounded-full px-4 py-1.5 bg-cyan-400/5"><i data-lucide="cpu" class="w-3.5 h-3.5"></i> <span id="heroTag">Real-time EA Telemetry</span></span>
+      <h1 class="mt-6 font-display text-4xl sm:text-6xl font-extrabold tracking-tight">
+        <span class="text-gradient" id="heroTitle">Multi-Account</span><br />
+        <span class="text-white">Command <span id="typed"></span><span class="type-caret" id="typeCaret"></span></span>
+      </h1>
+      <p class="mt-5 max-w-xl mx-auto text-sm sm:text-base text-slate-400">Monitor every MT5 terminal, Expert Advisor and open position across your entire trading fleet — unified in one luminous dashboard.</p>
+      <div class="mt-10 flex items-center justify-center gap-8 sm:gap-14 flex-wrap">
+        <div class="text-center"><div id="heroAccounts" class="text-2xl sm:text-3xl font-extrabold font-display text-cyan-400">0</div><div class="text-[10px] uppercase tracking-[0.25em] text-slate-500 mt-1">Accounts</div></div>
+        <div class="text-center"><div id="heroEAs" class="text-2xl sm:text-3xl font-extrabold font-display text-violet-400">0</div><div class="text-[10px] uppercase tracking-[0.25em] text-slate-500 mt-1">Active EAs</div></div>
+        <div class="text-center"><div id="heroProfit" class="text-2xl sm:text-3xl font-extrabold font-display text-emerald-400">$0</div><div class="text-[10px] uppercase tracking-[0.25em] text-slate-500 mt-1">Net Profit</div></div>
+        <div class="text-center"><div id="heroWin" class="text-2xl sm:text-3xl font-extrabold font-display text-amber-400">0%</div><div class="text-[10px] uppercase tracking-[0.25em] text-slate-500 mt-1">Win Rate</div></div>
+      </div>
+    </section>
+
+    <!-- KPI CARDS -->
+    <section class="reveal grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5">
+      <div class="glass card-glow rounded-2xl p-5 relative overflow-hidden" style="--accent:#3b82f6">
+        <span class="orb-mini" style="background:#3b82f6"></span>
+        <div class="flex justify-between items-start mb-3"><span class="kpi-label">Balance &amp; Equity</span><span class="p-2 rounded-lg bg-blue-500/10 text-blue-400"><i data-lucide="wallet" class="w-4 h-4"></i></span></div>
+        <div class="text-2xl font-extrabold text-white tracking-tight font-display" id="totalBalance" data-testid="kpi-total-balance">$0.00</div>
+        <div class="flex items-center justify-between mt-2 text-xs text-slate-400"><span>Equity: <strong class="text-slate-200" id="totalEquity">$0.00</strong></span><span id="accountCountBadge" class="bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full font-mono text-[10px]">0 Accs</span></div>
+      </div>
+      <div class="glass card-glow rounded-2xl p-5 relative overflow-hidden" id="todayCard" style="--accent:#34d399">
+        <span class="orb-mini" id="todayOrb" style="background:#34d399"></span>
+        <div class="flex justify-between items-start mb-3"><span class="kpi-label">Today's P&amp;L</span><span class="p-2 rounded-lg bg-emerald-500/10 text-emerald-400" id="todayIconWrap"><i data-lucide="trending-up" class="w-4 h-4" id="todayIcon"></i></span></div>
+        <div class="text-2xl font-extrabold tracking-tight font-display text-emerald-400" id="todayPnl" data-testid="kpi-today-pnl">$0.00</div>
+        <div class="mt-2 text-xs text-slate-400 flex items-center gap-1"><span>Floating:</span><span id="floatingPnl" class="font-semibold text-emerald-400">$0.00</span><span class="text-slate-500">(<span id="openCount">0</span> open)</span></div>
+      </div>
+      <div class="glass card-glow rounded-2xl p-5 relative overflow-hidden" style="--accent:#a855f7">
+        <span class="orb-mini" style="background:#a855f7"></span>
+        <div class="flex justify-between items-start mb-3"><span class="kpi-label">Month P&amp;L</span><span class="p-2 rounded-lg bg-violet-500/10 text-violet-400"><i data-lucide="calendar-range" class="w-4 h-4"></i></span></div>
+        <div class="text-2xl font-extrabold tracking-tight font-display text-emerald-400" id="monthPnl" data-testid="kpi-month-pnl">$0.00</div>
+        <div class="mt-2 text-xs text-slate-400">Closed (range): <span id="totalClosedPnl" class="font-semibold text-slate-200">$0.00</span></div>
+      </div>
+      <div class="glass card-glow rounded-2xl p-5 relative overflow-hidden" style="--accent:#fbbf24">
+        <span class="orb-mini" style="background:#fbbf24"></span>
+        <div class="flex justify-between items-start mb-3"><span class="kpi-label">Performance</span><span class="p-2 rounded-lg bg-amber-500/10 text-amber-400"><i data-lucide="award" class="w-4 h-4"></i></span></div>
+        <div class="flex items-baseline gap-2"><span class="text-2xl font-extrabold text-white font-display" id="winRate" data-testid="kpi-win-rate">0%</span><span class="text-xs text-slate-400">Win Rate</span></div>
+        <div class="mt-2 text-xs text-slate-400 flex items-center justify-between"><span>PF: <strong class="text-slate-200" id="profitFactor">0.00</strong></span><span>Trades: <strong class="text-slate-200" id="totalTradesCount">0</strong></span></div>
+      </div>
+      <div class="glass card-glow rounded-2xl p-5 relative overflow-hidden" style="--accent:#fb7185" data-testid="kpi-max-drawdown-card">
+        <span class="orb-mini" style="background:#fb7185"></span>
+        <div class="flex justify-between items-start mb-3"><span class="kpi-label">Max Drawdown</span><span class="p-2 rounded-lg bg-rose-500/10 text-rose-400"><i data-lucide="trending-down" class="w-4 h-4"></i></span></div>
+        <div class="space-y-1.5">
+          <div class="flex items-baseline justify-between gap-2"><span class="text-[10px] uppercase tracking-wider text-slate-500">Equity</span><span class="text-right whitespace-nowrap"><span class="text-lg font-extrabold font-display text-rose-400" id="ddEquity" data-testid="kpi-max-dd-equity">$0.00</span> <span class="text-[11px] font-mono text-rose-300/80" id="ddEquityPct" data-testid="kpi-max-dd-equity-pct">0.00%</span></span></div>
+          <div class="flex items-baseline justify-between gap-2"><span class="text-[10px] uppercase tracking-wider text-slate-500">Balance</span><span class="text-right whitespace-nowrap"><span class="text-lg font-extrabold font-display text-amber-300" id="ddBalance" data-testid="kpi-max-dd-balance">$0.00</span> <span class="text-[11px] font-mono text-amber-200/80" id="ddBalancePct" data-testid="kpi-max-dd-balance-pct">0.00%</span></span></div>
+        </div>
+        <div class="mt-2 text-xs text-slate-400 flex items-center justify-between"><span>Current DD: <strong class="text-slate-200" id="ddCurrent" data-testid="kpi-current-dd">$0.00</strong></span><span id="ddCurrentPct" class="font-mono text-[11px]">0.00%</span></div>
+      </div>
+    </section>
+
+    <!-- EQUITY CURVE -->
+    <section class="reveal glass gradient-border rounded-2xl p-6" data-testid="growth-curve-section">
+      <div class="flex flex-wrap items-start justify-between gap-3 mb-4">
+        <div><h2 class="text-base font-bold text-white flex items-center gap-2 font-display"><i data-lucide="trending-up" class="w-5 h-5 text-cyan-400"></i>Cumulative Growth Curve</h2><p class="text-xs text-slate-500 mt-0.5">Balance after every closed trade over time • peak, valley &amp; max drawdown auto-marked</p></div>
+        <div class="flex flex-wrap items-center gap-3 text-xs text-slate-400"><span class="hidden sm:flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span> Peak</span><span class="hidden sm:flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-rose-400"></span> Valley</span><span class="hidden sm:flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-cyan-400"></span> Current</span><span class="hidden sm:flex items-center gap-1.5"><span class="w-3 h-2.5 rounded-sm bg-rose-400/25 border border-rose-400/40"></span> Max DD</span><span class="hidden sm:flex items-center gap-1.5"><span class="w-4 border-t border-dashed border-slate-400"></span> Start</span></div>
+      </div>
+      <div id="equityChart" class="relative w-full"></div>
+      <div class="flex items-center justify-between mt-4 mb-2">
+        <p class="kpi-label">Underwater (drawdown from peak balance)</p>
+        <div class="flex rounded-lg border border-white/10 overflow-hidden" data-testid="dd-mode-toggle">
+          <button type="button" class="dd-mode px-3 py-1 text-[11px] font-mono" data-mode="usd" data-testid="dd-mode-usd">DD $</button>
+          <button type="button" class="dd-mode px-3 py-1 text-[11px] font-mono" data-mode="pct" data-testid="dd-mode-pct">DD %</button>
+        </div>
+      </div>
+      <div id="underwaterChart" class="relative w-full" data-testid="underwater-chart"></div>
+    </section>
+
+    <!-- DRAWDOWN PER EA (live) -->
+    <section class="reveal glass rounded-2xl p-6 space-y-4" data-testid="ea-drawdown-section">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div><h2 class="text-lg font-bold text-white flex items-center gap-2 font-display"><i data-lucide="shield-alert" class="w-5 h-5 text-rose-400"></i>Drawdown by EA</h2><p class="text-xs text-slate-500 mt-0.5">Max loss from peak per EA in the selected range • equity = closed + floating P&amp;L, balance = closed trades only • % of peak (start balance of the accounts the EA trades on)</p></div>
+        <span class="flex items-center gap-2 text-xs bg-rose-500/10 text-rose-300 px-2.5 py-1 rounded-full font-mono border border-rose-500/20" data-testid="ea-drawdown-live-badge"><span class="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse"></span>LIVE</span>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-sm whitespace-nowrap">
+          <thead class="text-xs text-slate-400 uppercase bg-slate-900/60"><tr><th class="p-3 rounded-l-lg">EA / Strategy</th><th class="p-3">Max DD — Equity</th><th class="p-3">Max DD — Balance</th><th class="p-3 text-right">Current DD</th><th class="p-3">Peak → Trough</th><th class="p-3 text-right rounded-r-lg">Floating Now</th></tr></thead>
+          <tbody id="eaDrawdownBody" data-testid="ea-drawdown-table" class="divide-y divide-white/5"></tbody>
+        </table>
+      </div>
+      <p id="ddSamplesNote" class="text-[11px] text-slate-500"></p>
+    </section>
+
+    <!-- EA BARS + DONUT -->
+    <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div class="reveal glass rounded-2xl p-6 lg:col-span-2"><div class="mb-4"><h2 class="text-base font-bold text-white flex items-center gap-2 font-display"><i data-lucide="bot" class="w-5 h-5 text-violet-400"></i>P&amp;L by EA / Strategy</h2><p class="text-xs text-slate-500 mt-0.5">Profit contribution per EA (magic numbers with the same name are merged)</p></div><div id="eaChart" class="space-y-3.5 pt-1"></div></div>
+      <div class="reveal glass rounded-2xl p-6"><div class="mb-4"><h2 class="text-base font-bold text-white flex items-center gap-2 font-display"><i data-lucide="pie-chart" class="w-5 h-5 text-amber-400"></i>Win / Loss Ratio</h2><p class="text-xs text-slate-500 mt-0.5">Overall trade success</p></div><div id="winLossChart"></div></div>
+    </section>
+
+    <!-- CALENDAR -->
+    <section class="reveal glass rounded-2xl p-6 space-y-6">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
+        <div><h2 class="text-lg font-bold text-white flex items-center gap-2 font-display"><i data-lucide="calendar-days" class="w-5 h-5 text-emerald-400"></i>Daily P&amp;L Calendar</h2><p class="text-xs text-slate-500 mt-0.5">Day-by-day profitability heatmap</p></div>
+        <div class="flex items-center gap-3">
+          <div class="bg-slate-900/70 border border-white/10 px-4 py-1.5 rounded-xl text-sm font-semibold flex items-center gap-2"><span class="text-slate-400">Monthly:</span><span id="calendarMonthTotal" class="font-bold text-emerald-400">$0.00</span></div>
+          <div class="flex items-center bg-slate-900/70 border border-white/10 rounded-xl overflow-hidden p-0.5"><button onclick="changeMonth(-1)" data-testid="calendar-prev-month" class="p-1.5 hover:bg-white/10 text-slate-400 hover:text-white rounded-lg transition"><i data-lucide="chevron-left" class="w-4 h-4"></i></button><span id="calendarCurrentMonth" class="px-3 text-sm font-medium text-slate-200 w-32 text-center">—</span><button onclick="changeMonth(1)" data-testid="calendar-next-month" class="p-1.5 hover:bg-white/10 text-slate-400 hover:text-white rounded-lg transition"><i data-lucide="chevron-right" class="w-4 h-4"></i></button></div>
+        </div>
+      </div>
+      <div><div class="grid grid-cols-7 gap-2 text-center text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-2"><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div><div>Sun</div></div><div id="calendarGrid" class="grid grid-cols-7 gap-2"></div></div>
+    </section>
+
+    <!-- ACCOUNTS + POSITIONS -->
+    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div class="reveal glass rounded-2xl p-6 space-y-4"><h2 class="text-base font-bold text-white flex items-center gap-2 font-display"><i data-lucide="layers" class="w-5 h-5 text-cyan-400"></i>Connected MT5 Accounts</h2><p class="text-xs text-slate-500 -mt-2">Live terminals streaming to the cloud</p><div id="accountsGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[420px] overflow-y-auto pr-1"></div></div>
+      <div class="reveal glass rounded-2xl p-6 space-y-4 flex flex-col"><div class="flex items-center justify-between"><h2 class="text-base font-bold text-white flex items-center gap-2 font-display"><i data-lucide="radio" class="w-5 h-5 text-rose-400"></i>Active Open Positions</h2><span id="liveOpenBadge" data-testid="open-positions-count" class="text-xs bg-rose-500/10 text-rose-400 px-2.5 py-1 rounded-full font-mono border border-rose-500/20">0 Active</span></div><div class="overflow-x-auto flex-1 max-h-[380px]"><table class="w-full text-left text-xs"><thead class="text-slate-400 uppercase bg-slate-900/60 sticky top-0"><tr><th class="p-2.5 rounded-l-lg">EA</th><th class="p-2.5">Symbol</th><th class="p-2.5">Type</th><th class="p-2.5">Lots</th><th class="p-2.5">Entry</th><th class="p-2.5 rounded-r-lg text-right">Float P&amp;L</th></tr></thead><tbody id="openPositionsTable" data-testid="open-positions-table" class="divide-y divide-white/5 text-slate-300"></tbody></table></div></div>
+    </section>
+
+    <!-- PENDING ORDERS -->
+    <section class="reveal glass rounded-2xl p-6 space-y-4" data-testid="pending-orders-section">
+      <div class="flex items-center justify-between gap-3">
+        <div><h2 class="text-lg font-bold text-white flex items-center gap-2 font-display"><i data-lucide="hourglass" class="w-5 h-5 text-sky-400"></i>Active Pending Orders</h2><p class="text-xs text-slate-500 mt-0.5">Limit &amp; stop orders waiting to trigger</p></div>
+        <span id="pendingBadge" data-testid="pending-orders-count" class="text-xs bg-sky-500/10 text-sky-300 px-2.5 py-1 rounded-full font-mono border border-sky-500/20">0 Pending</span>
+      </div>
+      <div class="overflow-x-auto max-h-[420px]">
+        <table class="w-full text-left text-xs whitespace-nowrap">
+          <thead class="text-slate-400 uppercase bg-slate-900/60 sticky top-0">
+            <tr><th class="p-2.5 rounded-l-lg">EA</th><th class="p-2.5">Ticket</th><th class="p-2.5">Symbol</th><th class="p-2.5">Type</th><th class="p-2.5 text-right">Lots</th><th class="p-2.5 text-right">Order Price</th><th class="p-2.5 text-right">Market</th><th class="p-2.5 text-right">Distance</th><th class="p-2.5 text-right">SL</th><th class="p-2.5 text-right">TP</th><th class="p-2.5">Placed</th><th class="p-2.5">Expiry</th><th class="p-2.5 rounded-r-lg">Comment</th></tr>
+          </thead>
+          <tbody id="pendingOrdersTable" data-testid="pending-orders-table" class="divide-y divide-white/5 text-slate-300"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- LEADERBOARD -->
+    <section class="reveal glass rounded-2xl p-6 space-y-4"><div class="pb-1 flex items-start justify-between gap-3"><div><h2 class="text-lg font-bold text-white flex items-center gap-2 font-display"><i data-lucide="trophy" class="w-5 h-5 text-amber-400"></i>EA Performance Leaderboard</h2><p class="text-xs text-slate-500 mt-0.5">Ranked by total net profit <span class="admin-only">• click a magic number to rename / merge an EA</span></p></div></div><div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead class="text-xs text-slate-400 uppercase bg-slate-900/60"><tr><th class="p-3 text-center rounded-l-lg w-14">Rank</th><th class="p-3">EA / Strategy</th><th class="p-3 text-right">Net P&amp;L</th><th class="p-3 text-center">Trades</th><th class="p-3 text-center">W / L</th><th class="p-3 text-center">Win Rate</th><th class="p-3 text-right">Avg</th><th class="p-3 text-right">Open</th><th class="p-3 text-center rounded-r-lg">Trade history</th></tr></thead><tbody id="eaLeaderboardBody" data-testid="ea-leaderboard" class="divide-y divide-white/5"></tbody></table></div></section>
+  </main>
+
+  <footer class="border-t border-white/5 text-center py-6 text-xs text-slate-600">MT5 Multi-Account Command Center • <span id="dataMode" class="text-slate-500">Cloud</span></footer>
+
+  <!-- ═══ MODAL ═══ -->
+  <div id="modal" class="fixed inset-0 z-[80] hidden items-start sm:items-center justify-center p-4 overflow-y-auto" data-testid="modal">
+    <div class="absolute inset-0 bg-black/70 backdrop-blur-sm" data-close="1"></div>
+    <div class="modal-card glass gradient-border rounded-2xl w-full max-w-2xl relative my-8">
+      <div class="flex items-center justify-between px-6 pt-5 pb-4 border-b border-white/5">
+        <h3 id="modalTitle" class="font-display text-lg font-bold text-white">—</h3>
+        <button class="icon-btn" data-close="1" data-testid="modal-close-button"><i data-lucide="x" class="w-4 h-4"></i></button>
+      </div>
+      <div id="modalBody" class="p-6 max-h-[70vh] overflow-y-auto"></div>
+    </div>
+  </div>
+
+  <!-- ═══ EA TRADES MODAL (closed-trade history of one EA, for the selected period) ═══ -->
+  <div id="tradesModal" class="fixed inset-0 z-[85] hidden items-center justify-center p-3 sm:p-5" data-testid="ea-trades-modal">
+    <div class="absolute inset-0 bg-black/75 backdrop-blur-sm" data-tm-close="1"></div>
+    <div class="tm-card glass gradient-border rounded-2xl w-full max-w-4xl relative flex flex-col max-h-[90vh]">
+      <div class="flex items-center justify-between gap-3 px-5 sm:px-6 pt-5 pb-4 border-b border-white/5">
+        <h3 id="tmTitle" data-testid="ea-trades-title" class="font-display text-base sm:text-lg font-bold text-white truncate">Trades</h3>
+        <button type="button" class="icon-btn shrink-0" data-tm-close="1" data-testid="ea-trades-close-button" title="Close"><i data-lucide="x" class="w-4 h-4"></i></button>
+      </div>
+      <div class="flex flex-wrap items-center justify-between gap-3 px-5 sm:px-6 pt-4">
+        <span class="tm-period" data-testid="ea-trades-period"><i data-lucide="calendar" class="w-3.5 h-3.5 text-slate-400"></i><span id="tmPeriodText">All time</span></span>
+        <span id="tmMeta" class="text-[11px] text-slate-500 font-mono"></span>
+      </div>
+      <div id="tmStats" class="grid grid-cols-2 sm:grid-cols-4 gap-3 px-5 sm:px-6 pt-4"></div>
+      <div class="flex-1 overflow-y-auto px-5 sm:px-6 pb-6 pt-4">
+        <table class="tm-table w-full text-left whitespace-nowrap">
+          <thead>
+            <tr>
+              <th class="rounded-l-lg">Symbol</th>
+              <th>Lots</th>
+              <th>Open time</th>
+              <th>Close time</th>
+              <th class="rounded-r-lg text-right">Final P&amp;L</th>
+            </tr>
+          </thead>
+          <tbody id="tmBody" data-testid="ea-trades-body"></tbody>
+        </table>
+        <div id="tmMore" class="mt-4 hidden items-center justify-center"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toasts" class="fixed bottom-5 right-5 z-[120] flex flex-col gap-2"></div>
+  <datalist id="eaNameOptions"></datalist>
+
+  <script src="/js/dashboard.js"></script>
+</body>
+</html>
