@@ -542,6 +542,37 @@ router.get('/eas', (req, res) => {
     }
 });
 
+// Closed trades of one EA (all its merged magic numbers) in the selected range, newest first
+router.get('/eas/trades', (req, res) => {
+    try {
+        const name = String(req.query.name || '').trim();
+        if (!name) return res.status(400).json({ success: false, error: 'Missing EA name' });
+        const f = scopeFilter(req, { date: 'close_time', useAccount: false, useEA: false });
+        f.sql += inList('magic_number', magicsForEA(name), f.params);
+        const r = rangeFilter(req, 'close_time');
+        const trades = db.prepare(`
+            SELECT account_number, ticket, magic_number, symbol, trade_type, volume,
+                   REPLACE(open_time, '.', '-') AS open_time, REPLACE(close_time, '.', '-') AS close_time, net_profit
+            FROM trades WHERE 1=1 ${f.sql} ${r.sql}
+            ORDER BY close_time DESC, id DESC
+        `).all(...f.params, ...r.params);
+        const wins = trades.filter((t) => t.net_profit > 0).length;
+        const losses = trades.filter((t) => t.net_profit < 0).length;
+        res.json({
+            success: true,
+            ea_name: name,
+            net_pnl: r2(trades.reduce((s, t) => s + t.net_profit, 0)),
+            total_trades: trades.length,
+            wins,
+            losses,
+            win_rate: trades.length ? r2((wins / trades.length) * 100) : 0,
+            trades
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 
 router.get('/calendar', (req, res) => {
     try {
