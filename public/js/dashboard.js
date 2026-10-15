@@ -720,13 +720,14 @@ function renderTradesRows() {
   }
   tb.innerHTML = tmState.trades.map((t, i) => {
     const net = Number(t.net_profit) || 0;
+    const win = net >= 0; // profit rows are green, losing rows are red
     const buy = String(t.trade_type || '').toUpperCase() === 'BUY';
-    return `<tr data-testid="ea-trade-row-${i}" title="Ticket ${esc(t.ticket)} • Account ${esc(t.account_number)}${t.comment ? ' • ' + esc(t.comment) : ''}">
+    return `<tr class="${win ? 'tm-row-win' : 'tm-row-loss'}" data-result="${win ? 'win' : 'loss'}" data-testid="ea-trade-row-${i}" title="Ticket ${esc(t.ticket)} • Account ${esc(t.account_number)}${t.comment ? ' • ' + esc(t.comment) : ''}">
       <td><div class="flex items-center gap-2"><span class="font-bold text-white">${esc(t.symbol)}</span><span class="tm-tag ${buy ? 'tm-tag-buy' : 'tm-tag-sell'}">${esc(t.trade_type || '')}</span></div></td>
       <td class="font-mono text-slate-300">${(Number(t.volume) || 0).toFixed(2)}</td>
       <td class="font-mono text-slate-300">${fmtDate(t.open_time)}</td>
       <td class="font-mono text-slate-300">${fmtDate(t.close_time)}</td>
-      <td class="text-right font-mono font-bold ${net >= 0 ? 'text-emerald-400' : 'text-rose-400'}" data-testid="ea-trade-pnl-${i}">${formatUSD(net)}</td></tr>`;
+      <td class="text-right"><span class="tm-pnl ${win ? 'tm-pnl-win' : 'tm-pnl-loss'}" data-testid="ea-trade-pnl-${i}">${formatUSD(net)}</span></td></tr>`;
   }).join('');
 }
 
