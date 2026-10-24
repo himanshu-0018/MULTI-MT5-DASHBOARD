@@ -186,12 +186,12 @@
     <!-- EQUITY CURVE -->
     <section class="reveal glass gradient-border rounded-2xl p-6" data-testid="growth-curve-section">
       <div class="flex flex-wrap items-start justify-between gap-3 mb-4">
-        <div><h2 class="text-base font-bold text-white flex items-center gap-2 font-display"><i data-lucide="trending-up" class="w-5 h-5 text-cyan-400"></i>Cumulative Growth Curve</h2><p class="text-xs text-slate-500 mt-0.5">Balance after every closed trade over time • peak, valley &amp; max drawdown auto-marked</p></div>
-        <div class="flex flex-wrap items-center gap-3 text-xs text-slate-400"><span class="hidden sm:flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span> Peak</span><span class="hidden sm:flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-rose-400"></span> Valley</span><span class="hidden sm:flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-cyan-400"></span> Current</span><span class="hidden sm:flex items-center gap-1.5"><span class="w-3 h-2.5 rounded-sm bg-rose-400/25 border border-rose-400/40"></span> Max DD</span><span class="hidden sm:flex items-center gap-1.5"><span class="w-4 border-t border-dashed border-slate-400"></span> Start</span></div>
+        <div><h2 class="text-base font-bold text-white flex items-center gap-2 font-display"><i data-lucide="trending-up" class="w-5 h-5 text-cyan-400"></i>Cumulative Growth Curve</h2><p class="text-xs text-slate-500 mt-0.5">Running profit &amp; loss for the selected period — always starts at $0.00 and rescales as it grows • peak, valley &amp; max drawdown auto-marked</p></div>
+        <div class="flex flex-wrap items-center gap-3 text-xs text-slate-400"><span class="hidden sm:flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span> Peak</span><span class="hidden sm:flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-rose-400"></span> Valley</span><span class="hidden sm:flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-cyan-400"></span> Current</span><span class="hidden sm:flex items-center gap-1.5"><span class="w-3 h-2.5 rounded-sm bg-rose-400/25 border border-rose-400/40"></span> Max DD</span><span class="hidden sm:flex items-center gap-1.5"><span class="w-4 border-t border-dashed border-slate-400"></span> $0 start</span></div>
       </div>
       <div id="equityChart" class="relative w-full"></div>
       <div class="flex items-center justify-between mt-4 mb-2">
-        <p class="kpi-label">Underwater (drawdown from peak balance)</p>
+        <p class="kpi-label">Underwater (fall from the period's peak)</p>
         <div class="flex rounded-lg border border-white/10 overflow-hidden" data-testid="dd-mode-toggle">
           <button type="button" class="dd-mode px-3 py-1 text-[11px] font-mono" data-mode="usd" data-testid="dd-mode-usd">DD $</button>
           <button type="button" class="dd-mode px-3 py-1 text-[11px] font-mono" data-mode="pct" data-testid="dd-mode-pct">DD %</button>
@@ -217,7 +217,7 @@
 
     <!-- EA BARS + DONUT -->
     <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <div class="reveal glass rounded-2xl p-6 lg:col-span-2"><div class="mb-4"><h2 class="text-base font-bold text-white flex items-center gap-2 font-display"><i data-lucide="bot" class="w-5 h-5 text-violet-400"></i>P&amp;L by EA / Strategy</h2><p class="text-xs text-slate-500 mt-0.5">Profit contribution per EA (magic numbers with the same name are merged)</p></div><div id="eaChart" class="space-y-3.5 pt-1"></div></div>
+      <div class="reveal glass rounded-2xl p-6 lg:col-span-2"><div class="mb-4"><h2 class="text-base font-bold text-white flex items-center gap-2 font-display"><i data-lucide="bot" class="w-5 h-5 text-violet-400"></i>P&amp;L by EA / Strategy</h2><p class="text-xs text-slate-500 mt-0.5">Profit contribution per EA (magic numbers with the same name are merged)</p><p id="eaChartScope" data-testid="ea-chart-scope" class="text-[11px] text-cyan-300/80 mt-1 font-mono"></p></div><div id="eaChart" class="space-y-3.5 pt-1"></div></div>
       <div class="reveal glass rounded-2xl p-6"><div class="mb-4"><h2 class="text-base font-bold text-white flex items-center gap-2 font-display"><i data-lucide="pie-chart" class="w-5 h-5 text-amber-400"></i>Win / Loss Ratio</h2><p class="text-xs text-slate-500 mt-0.5">Overall trade success</p></div><div id="winLossChart"></div></div>
     </section>
 
