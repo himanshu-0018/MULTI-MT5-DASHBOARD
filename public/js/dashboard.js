@@ -271,6 +271,12 @@ async function refreshDashboard(spin = false) {
 
 const filterQS = () => `account=${encodeURIComponent(currentAccount)}&ea=${encodeURIComponent(currentEA)}`;
 
+// Human-readable summary of the range/account/EA the EA sections are currently using
+function eaScopeLabel() {
+  const acc = currentAccount === 'all' ? 'All accounts' : `Account #${currentAccount}`;
+  return `${tmPeriodLabel()} • ${acc}${currentEA === 'all' ? '' : ' • ' + currentEA}`;
+}
+
 // 1. OVERVIEW
 async function fetchOverview() {
   const dp = dateParams();
@@ -339,9 +345,13 @@ async function fetchAccountsList() {
 // 3. EA LIST (+ filter dropdown + bar chart + leaderboard) — EAs are grouped by name
 async function fetchEAList() {
   const dp = dateParams();
-  const d = await api('/eas' + (dp.length ? '?' + dp.join('&') : ''));
+  // The account filter is applied server-side; the EA filter is applied below so the
+  // dropdown keeps listing every EA of the selected account.
+  const d = await api('/eas?' + [`account=${encodeURIComponent(currentAccount)}`, ...dp].join('&'));
   if (!d) return;
   const all = d.eas;
+  const scopeEl = $('eaChartScope');
+  if (scopeEl) scopeEl.textContent = eaScopeLabel();
   const sel = $('eaFilter');
   sel.innerHTML = '<option value="all">All EAs</option>';
   all.forEach((e) => {
@@ -403,12 +413,43 @@ function renderDonut(wins, losses) {
   requestAnimationFrame(() => { const arc = $('donutArc'); if (arc) { arc.style.transition = 'stroke-dasharray 1.3s cubic-bezier(.22,1,.36,1)'; arc.setAttribute('stroke-dasharray', `${len} ${C}`); } });
 }
 
-// 4. GROWTH CURVE — balance step-line on a true time axis + underwater strip (custom SVG)
+// 4. GROWTH CURVE — cumulative P&L for the period (starts at 0) + underwater strip (custom SVG)
 let eqData = null;
 let ddMode = 'usd';
 const parseT = (s) => new Date(String(s).replace(' ', 'T')).getTime();
 const fmtDay = (t) => new Date(t).toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
 const fmtStamp = (t) => new Date(t).toLocaleString('en-US', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+
+// Axis label for money: "$0", "-$250", "$1.5k" — decimals follow the tick step
+function axisMoney(v, step = 1) {
+  const a = Math.abs(v), neg = v < -1e-9;
+  const dec = step >= 1 ? (Number.isInteger(step) ? 0 : 1) : step >= 0.1 ? 1 : 2;
+  let num;
+  if (a >= 1000) num = (a / 1000).toFixed(a % 1000 < 1e-9 ? 0 : 1) + 'k';
+  else num = a.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+  return (neg ? '-$' : '$') + num;
+}
+
+// "Nice" axis: 1/2/2.5/5 x 10^n steps that always include zero, so the ticks read
+// 0, 100, 200, … and re-space automatically as the profit grows.
+function niceScale(min, max, maxTicks = 6) {
+  if (!isFinite(min) || !isFinite(max)) { min = 0; max = 100; }
+  if (min > 0) min = 0;   // the curve always starts at 0 → keep zero on the axis
+  if (max < 0) max = 0;
+  if (Math.abs(max - min) < 1e-9) max = min + 100;
+  const raw = (max - min) / Math.max(2, maxTicks - 1);
+  const mag = Math.pow(10, Math.floor(Math.log10(raw || 1)));
+  const norm = raw / mag;
+  const step = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 2.5 ? 2.5 : norm <= 5 ? 5 : 10) * mag;
+  let lo = Math.floor(min / step + 1e-9) * step;
+  let hi = Math.ceil(max / step - 1e-9) * step;
+  // keep a little air above/below so the peak and trough never sit on the frame
+  if (Math.abs(hi - max) < 1e-9) hi += step;
+  if (Math.abs(lo - min) < 1e-9 && min < 0) lo -= step;
+  const ticks = [];
+  for (let v = lo; v <= hi + step / 2; v += step) ticks.push(Number(v.toFixed(10)));
+  return { lo, hi: hi === lo ? lo + step : hi, step, ticks };
+}
 
 async function fetchEquity() {
   const dp = dateParams();
@@ -431,35 +472,47 @@ function renderEquity(noAnim = false) {
     box.innerHTML = '<div class="h-[200px] flex items-center justify-center text-slate-600 text-sm">No closed trades in this range</div>';
     uw.innerHTML = ''; return;
   }
-  const start = Number(d.start_balance) || 0;
+  const startingBalance = Number(d.start_balance) || 0;
   const t0 = parseT(d.curve[0].time);
-  const data = [{ t: t0 - 1000, v: start, c: 0, dd: 0, ddp: 0, p: 0, start: true }]
-    .concat(d.curve.map((p) => ({ t: parseT(p.time), v: p.balance, c: p.cumulative_profit, dd: p.dd, ddp: p.dd_pct, p: p.profit })));
+  // v = running P&L for the selected period. The first point is always 0, so the axis
+  // shows profit/loss instead of the account balance.
+  const data = [{ t: t0 - 1000, v: 0, c: 0, dd: 0, ddp: 0, p: 0, start: true }]
+    .concat(d.curve.map((p) => {
+      const cum = Number(p.cumulative_profit) || 0;
+      return { t: parseT(p.time), v: cum, c: cum, dd: p.dd, ddp: p.dd_pct, p: Number(p.profit) || 0 };
+    }));
   const anim = firstLoad && !noAnim;
-  const W = 1000, H = 360, padT = 20, padB = 26, padL = 8, padR = 8;
+  const W = 1000, H = 360, padT = 20, padB = 26, padL = 58, padR = 14;
   const UH = 120, uPadT = 6, uPadB = 18;
-  const xs = data.map((p) => p.t), ys = data.map((p) => p.v);
+  const xs = data.map((p) => p.t);
   const minX = Math.min(...xs), maxX = Math.max(...xs);
-  let minY = Math.min(...ys), maxY = Math.max(...ys);
-  const padY = (maxY - minY || Math.abs(maxY) || 1) * 0.06; minY -= padY; maxY += padY;
+  const scale = niceScale(Math.min(...data.map((p) => p.v)), Math.max(...data.map((p) => p.v)), 6);
+  const minY = scale.lo, maxY = scale.hi;
   const sx = (x) => padL + ((x - minX) / (maxX - minX || 1)) * (W - padL - padR);
   const sy = (y) => padT + (1 - (y - minY) / (maxY - minY || 1)) * (H - padT - padB);
   const pts = data.map((p) => ({ ...p, x: sx(p.t), y: sy(p.v) }));
   const line = stepPath(pts);
   const last = pts[pts.length - 1];
-  const area = `${line} H ${last.x} V ${H - padB} H ${pts[0].x} Z`;
+  const zeroY = sy(0);
+  const area = `${line} H ${last.x} V ${zeroY} H ${pts[0].x} Z`;
   let peak = 0, valley = 0; pts.forEach((p, i) => { if (p.v > pts[peak].v) peak = i; if (p.v < pts[valley].v) valley = i; });
 
   let grid = '', labels = '';
-  for (let i = 0; i <= 4; i++) {
-    const val = minY + (maxY - minY) * i / 4; const y = sy(val);
-    grid += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="rgba(148,163,184,0.08)" stroke-dasharray="5 6"/>`;
-    labels += `<span class="absolute left-1 text-[10px] font-mono text-slate-500" style="top:${(y / H) * 100}%;transform:translateY(-50%)">${compact(val)}</span>`;
-  }
+  scale.ticks.forEach((val) => {
+    const y = sy(val); const isZero = Math.abs(val) < 1e-9;
+    grid += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="${isZero ? 'rgba(148,163,184,0.38)' : 'rgba(148,163,184,0.08)'}" stroke-dasharray="${isZero ? '4 5' : '5 6'}"/>`;
+    labels += `<span class="absolute text-[10px] font-mono whitespace-nowrap ${isZero ? 'text-slate-300' : 'text-slate-500'} text-right" style="left:0;width:${((padL - 6) / W) * 100}%;padding-right:4px;top:${(y / H) * 100}%;transform:translateY(-50%)">${axisMoney(val, scale.step)}</span>`;
+  });
   let xLabels = '';
+  const shortSpan = (maxX - minX) < 3 * 86400000; // under ~3 days → show the time too
+  const fmtX = (t) => {
+    const dt = new Date(t);
+    const day = dt.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
+    return shortSpan ? `${day} ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}` : day;
+  };
   if (maxX > minX) for (let i = 0; i <= 4; i++) {
     const t = minX + (maxX - minX) * i / 4;
-    xLabels += `<span class="absolute bottom-0 text-[10px] font-mono text-slate-500" style="left:${(sx(t) / W) * 100}%;transform:translateX(${i === 0 ? '0' : i === 4 ? '-100%' : '-50%'})">${fmtDay(t)}</span>`;
+    xLabels += `<span class="absolute bottom-0 text-[10px] font-mono whitespace-nowrap text-slate-500" style="left:${(sx(t) / W) * 100}%;transform:translateX(${i === 0 ? '0' : i === 4 ? '-100%' : '-50%'})">${fmtX(t)}</span>`;
   }
   let zone = '';
   const dd = d.drawdown || {};
@@ -467,7 +520,8 @@ function renderEquity(noAnim = false) {
     const x1 = Math.max(padL, sx(parseT(dd.peak_time))), x2 = Math.min(W - padR, sx(parseT(dd.trough_time)));
     if (x2 > x1) zone = `<rect x="${x1}" y="${padT}" width="${x2 - x1}" height="${H - padT - padB}" fill="#fb7185" fill-opacity="0.08"/><line x1="${x1}" y1="${padT}" x2="${x1}" y2="${H - padB}" stroke="rgba(251,113,133,0.35)" stroke-dasharray="3 4"/><line x1="${x2}" y1="${padT}" x2="${x2}" y2="${H - padB}" stroke="rgba(251,113,133,0.35)" stroke-dasharray="3 4"/>`;
   }
-  const startY = sy(start);
+  const peakMark = pts[peak].v > 0 ? `<circle cx="${pts[peak].x}" cy="${pts[peak].y}" r="5" fill="#34d399" stroke="#05070f" stroke-width="2"/>` : '';
+  const valleyMark = pts[valley].v < 0 ? `<circle cx="${pts[valley].x}" cy="${pts[valley].y}" r="5" fill="#fb7185" stroke="#05070f" stroke-width="2"/>` : '';
 
   box.innerHTML = `
     <svg id="eqSvg" viewBox="0 0 ${W} ${H}" class="w-full h-[360px]" preserveAspectRatio="none" data-testid="growth-curve-svg">
@@ -478,11 +532,11 @@ function renderEquity(noAnim = false) {
       </defs>
       ${grid}
       ${zone}
-      <line x1="${padL}" y1="${startY}" x2="${W - padR}" y2="${startY}" stroke="rgba(100,116,139,0.55)" stroke-dasharray="4 5"/>
+      <line x1="${padL}" y1="${zeroY}" x2="${W - padR}" y2="${zeroY}" stroke="rgba(148,163,184,0.55)" stroke-dasharray="4 5"/>
       <path d="${area}" fill="url(#eqFill)" class="${anim ? 'eq-area' : ''}"/>
       <path d="${line}" pathLength="4000" fill="none" stroke="url(#eqStroke)" stroke-width="2" stroke-linejoin="round" filter="url(#eqGlow)" class="${anim ? 'eq-line' : ''}"/>
-      <circle cx="${pts[peak].x}" cy="${pts[peak].y}" r="5" fill="#34d399" stroke="#05070f" stroke-width="2"/>
-      <circle cx="${pts[valley].x}" cy="${pts[valley].y}" r="5" fill="#fb7185" stroke="#05070f" stroke-width="2"/>
+      ${peakMark}
+      ${valleyMark}
       <circle cx="${last.x}" cy="${last.y}" r="6" fill="#22d3ee" stroke="#05070f" stroke-width="2" class="pulse-dot"/>
       <g id="eqCross" style="display:none"><line id="eqCrossLine" y1="${padT}" y2="${H - padB}" stroke="rgba(34,211,238,0.4)" stroke-dasharray="3 3"/><circle id="eqCrossDot" r="5" fill="#fff" stroke="#22d3ee" stroke-width="2"/></g>
     </svg>
@@ -506,8 +560,8 @@ function renderEquity(noAnim = false) {
       <line id="uwCross" y1="${uPadT}" y2="${UH - uPadB}" stroke="rgba(34,211,238,0.4)" stroke-dasharray="3 3" style="display:none"/>
     </svg>
     <div class="absolute inset-0 pointer-events-none">
-      <span class="absolute left-1 text-[10px] font-mono text-slate-500" style="top:${(uy(0) / UH) * 100}%;transform:translateY(-50%)">0</span>
-      <span class="absolute left-1 text-[10px] font-mono text-rose-300/70" style="top:${(uy(minU) / UH) * 100}%;transform:translateY(-50%)">${ufmt(minU)}</span>
+      <span class="absolute text-[10px] font-mono whitespace-nowrap text-slate-500 text-right" style="left:0;width:${((padL - 6) / W) * 100}%;padding-right:4px;top:${(uy(0) / UH) * 100}%;transform:translateY(-50%)">0</span>
+      <span class="absolute text-[10px] font-mono whitespace-nowrap text-rose-300/70 text-right" style="left:0;width:${((padL - 6) / W) * 100}%;padding-right:4px;top:${(uy(minU) / UH) * 100}%;transform:translateY(-50%)">${ufmt(minU)}</span>
     </div>`;
 
   const tip = $('eqTip');
@@ -519,10 +573,12 @@ function renderEquity(noAnim = false) {
     $('eqCrossDot').setAttribute('cx', p.x); $('eqCrossDot').setAttribute('cy', p.y);
     const uc = $('uwCross'); uc.style.display = ''; uc.setAttribute('x1', p.x); uc.setAttribute('x2', p.x);
     tip.style.display = ''; tip.style.left = Math.min(Math.max((p.x / W) * 100, 8), 92) + '%'; tip.style.top = (p.y / H) * 100 + '%'; tip.style.marginTop = '-14px';
-    tip.innerHTML = `<div class="box"><div class="text-[10px] text-slate-400">${p.start ? 'Starting balance' : fmtStamp(p.t)}</div>
-      <div class="text-[10px] uppercase tracking-wider text-slate-500">Balance</div><div class="text-base font-extrabold text-cyan-300">${formatPlainUSD(p.v)}</div>
-      ${p.start ? '' : `<div class="text-[11px] text-slate-400">Trade <span class="${p.p >= 0 ? 'text-emerald-400' : 'text-rose-400'}">${formatUSD(p.p)}</span> • Cum <span class="${p.c >= 0 ? 'text-emerald-400' : 'text-rose-400'}">${formatUSD(p.c)}</span></div>
-      <div class="text-[11px] text-rose-300">DD ${formatPlainUSD(p.dd)} (${Number(p.ddp).toFixed(2)}%)</div>`}</div>`;
+    tip.innerHTML = `<div class="box"><div class="text-[10px] text-slate-400">${p.start ? 'Period start' : fmtStamp(p.t)}</div>
+      <div class="text-[10px] uppercase tracking-wider text-slate-500">Cumulative P&amp;L</div>
+      <div class="text-base font-extrabold ${p.start ? 'text-slate-200' : p.v >= 0 ? 'text-emerald-300' : 'text-rose-300'}">${p.start ? formatPlainUSD(0) : formatUSD(p.v)}</div>
+      ${p.start
+        ? `<div class="text-[11px] text-slate-400">Starting balance ${formatPlainUSD(startingBalance)}</div>`
+        : `<div class="text-[11px] text-slate-400">Trade <span class="${p.p >= 0 ? 'text-emerald-400' : 'text-rose-400'}">${formatUSD(p.p)}</span> • DD from peak <span class="text-rose-300">${formatPlainUSD(p.dd)}</span> (${Number(p.ddp).toFixed(2)}%)</div>`}</div>`;
   };
   const hide = () => { $('eqCross').style.display = 'none'; $('uwCross').style.display = 'none'; tip.style.display = 'none'; };
   [$('eqSvg'), $('uwSvg')].forEach((el) => { el.addEventListener('mousemove', (e) => show(e, el)); el.addEventListener('mouseleave', hide); });
