@@ -488,10 +488,11 @@ router.get('/accounts', (req, res) => {
 });
 
 
-// EAs grouped by NAME — magic numbers sharing a name are merged into one EA
+// EAs grouped by NAME — magic numbers sharing a name are merged into one EA.
+// Honours the selected date range, account and EA filters so the P&L by EA section matches the header.
 router.get('/eas', (req, res) => {
     try {
-        const f = scopeFilter(req, { acc: 't.account_number', magic: 't.magic_number', date: 't.close_time', useAccount: false, useEA: false });
+        const f = scopeFilter(req, { acc: 't.account_number', magic: 't.magic_number', date: 't.close_time' });
         const r = rangeFilter(req, 't.close_time');
         const tradeRows = db.prepare(`
             SELECT t.magic_number,
@@ -504,7 +505,7 @@ router.get('/eas', (req, res) => {
             GROUP BY t.magic_number
         `).all(...f.params, ...r.params);
 
-        const o = scopeFilter(req, { useAccount: false, useEA: false });
+        const o = scopeFilter(req);
         const openRows = db.prepare(`
             SELECT magic_number, COALESCE(SUM(profit + swap), 0) as open_pnl, COUNT(*) as open_count
             FROM open_positions WHERE 1=1 ${o.sql} GROUP BY magic_number
@@ -527,6 +528,18 @@ router.get('/eas', (req, res) => {
         });
         openRows.forEach((row) => { const g = group(row.magic_number); g.open_pnl += row.open_pnl; g.open_count += row.open_count; });
         pendRows.forEach((row) => { group(row.magic_number).pending_count += row.c; });
+
+        // A single EA selected in the header stays visible even when it has no trades in this period
+        const wantedEA = req.query.ea && req.query.ea !== 'all' ? String(req.query.ea) : null;
+        if (wantedEA && !groups[wantedEA]) {
+            const magics = magicsForEA(wantedEA);
+            const stored = magics.map((m) => reg[m] && reg[m].color).filter((c) => c && c !== '#3b82f6')[0];
+            groups[wantedEA] = {
+                ea_name: wantedEA, color: colorFor(wantedEA, stored),
+                magic_numbers: magics.slice().sort((a, b) => a - b),
+                total_trades: 0, total_pnl: 0, wins: 0, losses: 0, open_pnl: 0, open_count: 0, pending_count: 0
+            };
+        }
 
         const eas = Object.values(groups).map((g) => ({
             ...g,
