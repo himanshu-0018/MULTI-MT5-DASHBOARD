@@ -417,7 +417,6 @@ function renderDonut(wins, losses) {
 let eqData = null;
 let ddMode = 'usd';
 const parseT = (s) => new Date(String(s).replace(' ', 'T')).getTime();
-const fmtDay = (t) => new Date(t).toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
 const fmtStamp = (t) => new Date(t).toLocaleString('en-US', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 
 // Axis label for money: "$0", "-$250", "$1.5k" — decimals follow the tick step
@@ -451,6 +450,53 @@ function niceScale(min, max, maxTicks = 6) {
   return { lo, hi: hi === lo ? lo + step : hi, step, ticks };
 }
 
+// ─── adaptive time axis ───
+// Picks a clock-aligned step (minutes / hours / days / months) from the visible span, so the
+// x-axis reads like a real time axis instead of five arbitrary timestamps.
+const MIN_MS = 60000, HOUR_MS = 3600000, DAY_MS = 86400000;
+
+function timeStep(spanMs) {
+  const TARGET = 4; // aim for 3–5 ticks so the axis stays readable at any zoom
+  if (spanMs > 60 * DAY_MS) {
+    const months = [1, 2, 3, 6, 12].find((m) => spanMs / (m * 30 * DAY_MS) <= TARGET) || 12;
+    return { months, ms: 0 };
+  }
+  const steps = [1, 2, 5, 10, 15, 30].map((m) => m * MIN_MS)
+    .concat([1, 2, 3, 6, 12].map((h) => h * HOUR_MS))
+    .concat([1, 2, 3, 7, 14, 28].map((d) => d * DAY_MS));
+  return { months: 0, ms: steps.find((s) => spanMs / s <= TARGET) || 28 * DAY_MS };
+}
+
+// snap a timestamp back to its local clock boundary (midnight / whole hour / month start)
+function stepFloor(t, step) {
+  const d = new Date(t);
+  if (step.months) { d.setDate(1); d.setHours(0, 0, 0, 0); return d.getTime(); }
+  if (step.ms >= DAY_MS) { d.setHours(0, 0, 0, 0); return d.getTime(); }
+  const midnight = new Date(t); midnight.setHours(0, 0, 0, 0);
+  return midnight.getTime() + Math.floor((t - midnight.getTime()) / step.ms) * step.ms;
+}
+
+function timeTicks(from, to, step) {
+  const out = [];
+  if (step.months) {
+    const d = new Date(from);
+    while (d.getTime() <= to && out.length < 12) { out.push(d.getTime()); d.setMonth(d.getMonth() + step.months); }
+    return out;
+  }
+  for (let t = from; t <= to + 1 && out.length < 12; t += step.ms) out.push(t);
+  return out;
+}
+
+function timeLabel(t, step) {
+  const d = new Date(t);
+  if (step.months) return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  if (step.ms < DAY_MS) {
+    const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${hm}`;
+  }
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 async function fetchEquity() {
   const dp = dateParams();
   const d = await api(`/charts/equity-curve?${filterQS()}${dp.length ? '&' + dp.join('&') : ''}`);
@@ -467,25 +513,31 @@ const stepPath = (pts) => pts.reduce((acc, p, i) => acc + (i ? ` H ${p.x} V ${p.
 
 function renderEquity(noAnim = false) {
   const box = $('equityChart'), uw = $('underwaterChart');
+  const rangeEl = $('eqRangeLabel');
+  if (rangeEl) rangeEl.textContent = eaScopeLabel();
   const d = eqData;
   if (!d || !d.curve || !d.curve.length) {
     box.innerHTML = '<div class="h-[200px] flex items-center justify-center text-slate-600 text-sm">No closed trades in this range</div>';
     uw.innerHTML = ''; return;
   }
   const startingBalance = Number(d.start_balance) || 0;
-  const t0 = parseT(d.curve[0].time);
   // v = running P&L for the selected period. The first point is always 0, so the axis
   // shows profit/loss instead of the account balance.
-  const data = [{ t: t0 - 1000, v: 0, c: 0, dd: 0, ddp: 0, p: 0, start: true }]
-    .concat(d.curve.map((p) => {
-      const cum = Number(p.cumulative_profit) || 0;
-      return { t: parseT(p.time), v: cum, c: cum, dd: p.dd, ddp: p.dd_pct, p: Number(p.profit) || 0 };
-    }));
+  const curvePts = d.curve.map((p) => {
+    const cum = Number(p.cumulative_profit) || 0;
+    return { t: parseT(p.time), v: cum, c: cum, dd: p.dd, ddp: p.dd_pct, p: Number(p.profit) || 0 };
+  });
+  const firstTradeT = Math.min(...curvePts.map((p) => p.t));
+  const lastTradeT = Math.max(...curvePts.map((p) => p.t));
+  // x domain: start on the clock boundary before the first trade, so ticks land on real
+  // times (00:00, 06:00, a whole day…) instead of arbitrary fractions of the range.
+  const xStep = timeStep(Math.max(1, lastTradeT - firstTradeT));
+  const minX = stepFloor(firstTradeT, xStep);
+  const maxX = lastTradeT > minX ? lastTradeT : minX + Math.max(xStep.ms || 30 * DAY_MS, HOUR_MS);
+  const data = [{ t: minX, v: 0, c: 0, dd: 0, ddp: 0, p: 0, start: true }, ...curvePts];
   const anim = firstLoad && !noAnim;
   const W = 1000, H = 360, padT = 20, padB = 26, padL = 58, padR = 14;
   const UH = 120, uPadT = 6, uPadB = 18;
-  const xs = data.map((p) => p.t);
-  const minX = Math.min(...xs), maxX = Math.max(...xs);
   const scale = niceScale(Math.min(...data.map((p) => p.v)), Math.max(...data.map((p) => p.v)), 6);
   const minY = scale.lo, maxY = scale.hi;
   const sx = (x) => padL + ((x - minX) / (maxX - minX || 1)) * (W - padL - padR);
@@ -503,17 +555,19 @@ function renderEquity(noAnim = false) {
     grid += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="${isZero ? 'rgba(148,163,184,0.38)' : 'rgba(148,163,184,0.08)'}" stroke-dasharray="${isZero ? '4 5' : '5 6'}"/>`;
     labels += `<span class="absolute text-[10px] font-mono whitespace-nowrap ${isZero ? 'text-slate-300' : 'text-slate-500'} text-right" style="left:0;width:${((padL - 6) / W) * 100}%;padding-right:4px;top:${(y / H) * 100}%;transform:translateY(-50%)">${axisMoney(val, scale.step)}</span>`;
   });
-  let xLabels = '';
-  const shortSpan = (maxX - minX) < 3 * 86400000; // under ~3 days → show the time too
-  const fmtX = (t) => {
-    const dt = new Date(t);
-    const day = dt.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
-    return shortSpan ? `${day} ${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}` : day;
-  };
-  if (maxX > minX) for (let i = 0; i <= 4; i++) {
-    const t = minX + (maxX - minX) * i / 4;
-    xLabels += `<span class="absolute bottom-0 text-[10px] font-mono whitespace-nowrap text-slate-500" style="left:${(sx(t) / W) * 100}%;transform:translateX(${i === 0 ? '0' : i === 4 ? '-100%' : '-50%'})">${fmtX(t)}</span>`;
-  }
+  let vgrid = '', xLabels = '';
+  let lastLabel = '';
+  timeTicks(minX, maxX, xStep).forEach((t) => {
+    const x = sx(t);
+    if (x < padL - 0.5 || x > W - padR + 0.5) return;
+    vgrid += `<line x1="${x}" y1="${padT}" x2="${x}" y2="${H - padB}" stroke="rgba(148,163,184,0.055)" stroke-dasharray="3 6"/>`;
+    const label = timeLabel(t, xStep);
+    if (label === lastLabel) return; // e.g. two month ticks in the same month
+    lastLabel = label;
+    const pct = (x / W) * 100;
+    const align = pct < 5 ? '0' : pct > 95 ? '-100%' : '-50%';
+    xLabels += `<span class="absolute bottom-0 text-[10px] font-mono whitespace-nowrap text-slate-500" style="left:${pct}%;transform:translateX(${align})">${label}</span>`;
+  });
   let zone = '';
   const dd = d.drawdown || {};
   if (dd.peak_time && dd.trough_time) {
@@ -531,6 +585,7 @@ function renderEquity(noAnim = false) {
         <filter id="eqGlow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
       </defs>
       ${grid}
+      ${vgrid}
       ${zone}
       <line x1="${padL}" y1="${zeroY}" x2="${W - padR}" y2="${zeroY}" stroke="rgba(148,163,184,0.55)" stroke-dasharray="4 5"/>
       <path d="${area}" fill="url(#eqFill)" class="${anim ? 'eq-area' : ''}"/>
@@ -545,12 +600,13 @@ function renderEquity(noAnim = false) {
 
   // Underwater strip
   const key = ddMode === 'usd' ? 'dd' : 'ddp';
-  const minU = Math.min(...data.map((p) => -p[key]), -0.01);
+  const ddMax = Math.max(...data.map((p) => p[key]));   // real max drawdown in the strip
+  const minU = Math.min(-ddMax, -0.01);                 // geometry floor (keeps a flat strip visible)
   const uy = (v) => uPadT + (v / minU) * (UH - uPadT - uPadB);
   const upts = data.map((p) => ({ x: sx(p.t), y: uy(-p[key]) }));
   const uline = stepPath(upts);
   const uarea = `${uline} H ${upts[upts.length - 1].x} V ${uy(0)} H ${upts[0].x} Z`;
-  const ufmt = (v) => (ddMode === 'usd' ? '-' + compact(Math.abs(v)) : v.toFixed(1) + '%');
+  const ufmt = (v) => (Math.abs(v) < 0.005 ? '0' : ddMode === 'usd' ? '-' + compact(Math.abs(v)) : v.toFixed(1) + '%');
   uw.innerHTML = `
     <svg id="uwSvg" viewBox="0 0 ${W} ${UH}" class="w-full h-[120px]" preserveAspectRatio="none">
       <line x1="${padL}" y1="${uy(0)}" x2="${W - padR}" y2="${uy(0)}" stroke="rgba(100,116,139,0.45)" stroke-dasharray="4 5"/>
@@ -561,7 +617,7 @@ function renderEquity(noAnim = false) {
     </svg>
     <div class="absolute inset-0 pointer-events-none">
       <span class="absolute text-[10px] font-mono whitespace-nowrap text-slate-500 text-right" style="left:0;width:${((padL - 6) / W) * 100}%;padding-right:4px;top:${(uy(0) / UH) * 100}%;transform:translateY(-50%)">0</span>
-      <span class="absolute text-[10px] font-mono whitespace-nowrap text-rose-300/70 text-right" style="left:0;width:${((padL - 6) / W) * 100}%;padding-right:4px;top:${(uy(minU) / UH) * 100}%;transform:translateY(-50%)">${ufmt(minU)}</span>
+      ${ddMax > 0.005 ? `<span class="absolute text-[10px] font-mono whitespace-nowrap text-rose-300/70 text-right" style="left:0;width:${((padL - 6) / W) * 100}%;padding-right:4px;top:${(uy(minU) / UH) * 100}%;transform:translateY(-50%)">${ufmt(-ddMax)}</span>` : ''}
     </div>`;
 
   const tip = $('eqTip');
